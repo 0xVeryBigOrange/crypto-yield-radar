@@ -1,0 +1,83 @@
+# Keymint: one web service, one Postgres database, and a daily cron.
+# Apply in the Render Dashboard with a Blueprint. Set UPSTREAM_API_KEY when prompted.
+version: "1"
+
+envVarGroups:
+  - name: keymint-config
+    envVars:
+      - key: UPSTREAM_API_KEY
+        sync: false
+      - key: UPSTREAM_PROVIDER
+        value: openrouter
+      - key: UPSTREAM_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: MARKUP
+        value: "1.3"
+      - key: MIN_DEPOSIT_USD
+        value: "5"
+      - key: DEFAULT_RPM
+        value: "60"
+      - key: RESERVE_BUFFER
+        value: "1.25"
+      - key: DEFAULT_MAX_COMPLETION
+        value: "1024"
+      - key: MIN_CONFIRMATIONS_ETH
+        value: "12"
+      - key: MIN_CONFIRMATIONS_BSC
+        value: "15"
+      - key: ETH_RPC_URL
+        value: https://ethereum.publicnode.com
+      - key: BSC_RPC_URL
+        value: https://bsc.publicnode.com
+      - key: APP_NAME
+        value: Keymint
+
+databases:
+  - name: keymint-db
+    databaseName: keymint
+    user: keymint
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: keymint
+    runtime: node
+    plan: starter
+    healthCheckPath: /healthz
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node dist/index.js
+    autoDeploy: true
+    envVars:
+      - fromGroup: keymint-config
+      - key: DATABASE_URL
+        fromDatabase:
+          name: keymint-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+
+  - type: cron
+    name: keymint-daily
+    runtime: node
+    plan: starter
+    schedule: "15 0 * * *"
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node dist/daily.js
+    autoDeploy: true
+    envVars:
+      - fromGroup: keymint-config
+      - key: DATABASE_URL
+        fromDatabase:
+          name: keymint-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"

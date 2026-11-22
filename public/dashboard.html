@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-en="Dashboard — Keymint">控制台 — Keymint</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;650&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true">K</span><span>Keymint</span></a>
+    <nav class="nav-links">
+      <a href="/" data-en="Home">首页</a>
+      <a href="/admin" data-en="Admin">管理</a>
+    </nav>
+    <button type="button" class="btn btn-ghost hidden" id="logout"><span data-en="Log out">退出</span></button>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" class="lang-btn" data-lang="zh">中文</button>
+      <button type="button" class="lang-btn" data-lang="en">EN</button>
+    </div>
+  </header>
+  <main class="wrap section">
+    <section id="auth-view" class="auth-grid">
+      <div class="card">
+        <h1 data-en="Sign in">登录</h1>
+        <form id="login-form" class="form">
+          <label><span data-en="Email">邮箱</span><input name="email" type="email" autocomplete="username" required></label>
+          <label><span data-en="Password">密码</span><input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="btn" type="submit" data-en="Sign in">登录</button>
+          <p class="msg" id="login-msg" role="status"></p>
+        </form>
+      </div>
+      <div class="card">
+        <h2 data-en="Create an account">注册</h2>
+        <form id="signup-form" class="form">
+          <label><span data-en="Email">邮箱</span><input name="email" type="email" autocomplete="username" required></label>
+          <label><span data-en="Password, at least 10 characters">密码，至少 10 位</span><input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+          <button class="btn" type="submit" data-en="Create account">创建账号</button>
+          <p class="msg" id="signup-msg" role="status"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="app-view" class="app-grid hidden">
+      <article class="card">
+        <p class="eyebrow" id="me-email"></p>
+        <h1 data-en="Available balance">可用余额</h1>
+        <p class="total">$<span id="balance">0.00</span></p>
+        <p class="muted"><span data-en="On hold">冻结中</span> $<span id="reserved">0.00</span></p>
+      </article>
+      <article class="card">
+        <h2 data-en="Deposit">充值</h2>
+        <div class="deposit-box">
+          <img id="deposit-qr" alt="QR code for the deposit address" width="180" height="180">
+          <div>
+            <p class="addr" id="deposit-address"></p>
+            <p class="grouped" id="deposit-grouped"></p>
+            <button type="button" class="btn" id="copy-address"><span data-en="Copy address">复制地址</span></button>
+          </div>
+        </div>
+        <p class="callout" data-en="Send only the listed token on the listed chain. ETH, BNB, and other assets are not credited. Submit your own transaction hash; the first valid submission receives the credit.">只转入列出的链和代币。ETH、BNB 和其他资产不会入账。请提交你自己的交易哈希，第一笔有效提交会入账。</p>
+        <p class="muted"><span data-en="Minimum">最低充值</span> $<span id="min-deposit"></span></p>
+        <ul class="token-list" id="token-list"></ul>
+        <form id="deposit-form" class="form">
+          <label><span data-en="Chain">链</span>
+            <select name="chain">
+              <option value="ethereum">Ethereum</option>
+              <option value="bsc">BNB Smart Chain</option>
+            </select>
+          </label>
+          <label><span data-en="Transaction hash">交易哈希</span><input name="txHash" required pattern="0x[0-9a-fA-F]{64}" placeholder="0x…"></label>
+          <button class="btn" type="submit" data-en="Credit this transfer">提交入账</button>
+          <p class="msg" id="deposit-msg" role="status"></p>
+        </form>
+      </article>
+
+      <article class="card span-2">
+        <h2 data-en="Deposit history">充值记录</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-en="Time">时间</th>
+                <th data-en="Chain">链</th>
+                <th data-en="Token">代币</th>
+                <th data-en="Amount">金额</th>
+                <th data-en="Transaction">交易</th>
+              </tr>
+            </thead>
+            <tbody id="deposit-body"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2 data-en="API keys">API 密钥</h2>
+        <form id="key-form" class="form">
+          <label><span data-en="Name">名称</span><input name="name" maxlength="40" data-en-placeholder="laptop" placeholder="笔记本"></label>
+          <button class="btn" type="submit" data-en="Create key">创建密钥</button>
+        </form>
+        <div id="key-secret" class="hidden">
+          <p data-en="Copy this key now. It will not be shown again.">请立即复制。离开后无法再查看。</p>
+          <p class="secret" id="key-secret-value"></p>
+        </div>
+        <p class="msg" id="key-msg" role="status"></p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th data-en="Name">名称</th><th data-en="Key">密钥</th><th></th></tr></thead>
+            <tbody id="key-body"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2 data-en="Usage">用量</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-en="Time">时间</th>
+                <th data-en="Model">模型</th>
+                <th data-en="Tokens">Token</th>
+                <th data-en="Charged">扣费</th>
+              </tr>
+            </thead>
+            <tbody id="usage-body"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card span-2">
+        <h2 data-en="Model prices, markup included">模型价格（已含倍率）</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-en="Model">模型</th>
+                <th data-en="Input / 1M">输入 / 百万</th>
+                <th data-en="Output / 1M">输出 / 百万</th>
+              </tr>
+            </thead>
+            <tbody id="price-body"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="/i18n.js"></script>
+  <script src="/dashboard.js"></script>
+</body>
+</html>
