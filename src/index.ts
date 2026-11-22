@@ -9,6 +9,8 @@ import { createProvider } from "./upstream.js";
 loadEnvFile();
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
+// Migrations finish before the port opens, so Render's /healthz check sees a ready schema.
+// schema.sql is idempotent; a free-tier cold start runs it again on every wake.
 await migrate(pool);
 
 const provider = config.upstreamApiKey

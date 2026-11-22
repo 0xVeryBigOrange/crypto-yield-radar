@@ -8,6 +8,7 @@ import { log } from "./log.js";
 import { DEPOSIT_ADDRESS } from "./payments.js";
 import { registerAccountRoutes } from "./routes/account.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerInternalRoutes } from "./routes/internal.js";
 import { registerV1Routes } from "./routes/v1.js";
 import type { UpstreamProvider } from "./upstream.js";
 
@@ -77,6 +78,7 @@ export function buildApp(deps: AppDeps): Express {
 
   registerAccountRoutes(app, deps);
   registerAdminRoutes(app, deps);
+  registerInternalRoutes(app, deps);
   registerV1Routes(app, deps);
 
   app.get("/", (_req, res) => sendPage(res, publicDir, "index.html"));
@@ -85,7 +87,7 @@ export function buildApp(deps: AppDeps): Express {
   app.use(express.static(publicDir, { index: false, maxAge: 0 }));
 
   app.use((req, res) => {
-    if (req.path.startsWith("/api") || req.path.startsWith("/v1")) {
+    if (req.path.startsWith("/api") || req.path.startsWith("/v1") || req.path.startsWith("/internal")) {
       res.status(404).json({ error: { code: "not_found", message: "Not found." } });
       return;
     }
