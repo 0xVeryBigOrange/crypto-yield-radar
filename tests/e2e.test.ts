@@ -119,6 +119,7 @@ describe.skipIf(!enabled)("http ledger", () => {
     process.env.MARKUP = "1.3";
     process.env.NODE_ENV = "test";
     process.env.APP_PUBLIC_URL = "http://127.0.0.1";
+    process.env.CRON_SECRET = "test-cron-secret";
     const config = loadConfig();
     const provider = createProvider({
       provider: config.upstreamProvider,
@@ -286,6 +287,18 @@ describe.skipIf(!enabled)("http ledger", () => {
     const summaries = await fetch(`${base}/api/admin/summaries`, { headers: { "x-admin-token": "test-admin-token" } });
     const summaryBody = (await summaries.json()) as { summaries: Array<{ requestCount: number }> };
     expect(summaryBody.summaries.some((row) => row.requestCount >= 2)).toBe(true);
+
+    const cronDenied = await fetch(`${base}/internal/daily`, { method: "POST", headers: { "x-cron-secret": "nope" } });
+    expect(cronDenied.status).toBe(401);
+    const daily = await fetch(`${base}/internal/daily`, {
+      method: "POST",
+      headers: { "x-cron-secret": "test-cron-secret" },
+    });
+    expect(daily.status).toBe(200);
+    const dailyBody = (await daily.json()) as { ok: boolean; priceRefresh: string; day: string };
+    expect(dailyBody.ok).toBe(true);
+    expect(dailyBody.priceRefresh).toBe("ok");
+    expect(dailyBody.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 

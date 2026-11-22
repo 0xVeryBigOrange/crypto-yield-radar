@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgres://keymint:keymint@db:5432/keymint
       SESSION_SECRET: dev-session-secret-change-me
       ADMIN_TOKEN: dev-admin-token
+      CRON_SECRET: dev-cron-secret
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
       UPSTREAM_PROVIDER: openrouter
       UPSTREAM_BASE_URL: https://openrouter.ai/api/v1

@@ -23,6 +23,7 @@ export interface Config {
   defaultMaxCompletion: number;
   corsOrigins: string[];
   upstreamTimeoutMs: number;
+  cronSecret: string | null;
 }
 
 const DEV_SESSION_SECRET = "dev-only-session-secret-not-for-production";
@@ -86,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((item) => item.trim())
       .filter(Boolean),
     upstreamTimeoutMs: intEnv(env, "UPSTREAM_TIMEOUT_MS", 120_000, 1_000, 600_000),
+    cronSecret: blank(env.CRON_SECRET),
   };
 }
 

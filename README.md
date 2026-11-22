@@ -24,6 +24,8 @@ Postgres：用户、余额、充值、用量、模型价格、每日汇总
 
 上游通过 `src/upstream.ts` 里的 `createOpenAICompatibleProvider()` 抽象。换一家同样兼容 OpenAI 的服务时，把 `UPSTREAM_PROVIDER` 设为 `openai-compatible`，并填写它的 `UPSTREAM_BASE_URL` 和 `UPSTREAM_API_KEY`。OpenRouter 专用的 `HTTP-Referer` / `X-Title` 只加在 `openrouter` 这一支上。
 
+每天 00:15 UTC，GitHub Actions 向 Web 服务发送 `POST /internal/daily`（请求头 `X-Cron-Secret`）。这一下会叫醒休眠的免费实例，然后在进程里刷新模型价格、写入昨天（UTC）的用量和加价收入，并清掉两天前的限流计数。数据库只给 Web 服务连，GitHub 看不到 `DATABASE_URL`。
+
 计费：
 
 1. 用缓存的上游单价估算本次请求（提示词长度 / 4，加上 `max_tokens` 或 `DEFAULT_MAX_COMPLETION`），乘以 `MARKUP` 和 `RESERVE_BUFFER`，从可用余额冻到冻结余额。
@@ -60,6 +62,7 @@ Postgres：用户、余额、充值、用量、模型价格、每日汇总
 | `UPSTREAM_API_KEY` | 调用模型时必填 | OpenRouter（或你选的上游）的 API key。没有它时网站和充值仍可用，`/v1/chat/completions` 返回 503。 |
 | `SESSION_SECRET` | 生产必填 | 至少 16 位。用于会话令牌的 HMAC。Blueprint 会自动生成。 |
 | `ADMIN_TOKEN` | 使用管理页时必填 | 打开 `/admin` 的令牌。Blueprint 会自动生成，之后到 Render 环境变量里复制。 |
+| `CRON_SECRET` | 启用每日任务时必填 | 保护 `POST /internal/daily`。未设置时该接口返回 503。Blueprint 会自动生成。把同一个值放到 GitHub 仓库 Secret `CRON_SECRET`。 |
 | `UPSTREAM_PROVIDER` | 否 | `openrouter`（默认）或 `openai-compatible`。 |
 | `UPSTREAM_BASE_URL` | 否 | 默认 `https://openrouter.ai/api/v1`。 |
 | `APP_PUBLIC_URL` | 否 | 公网地址，用作 OpenRouter 的 `HTTP-Referer`。部署后改成真实域名。 |
@@ -116,7 +119,13 @@ npm run build && npm run daily
 # 或者不编译：npm run daily:dev
 ```
 
-它会刷新模型价格，并写入昨天（UTC）的用量和加价收入汇总。
+它会刷新模型价格，并写入昨天（UTC）的用量和加价收入汇总。服务已经在跑、并且 `.env` 里有 `CRON_SECRET` 时，也可以：
+
+```bash
+curl -X POST http://127.0.0.1:3000/internal/daily -H "X-Cron-Secret: $CRON_SECRET"
+```
+
+Compose 里的本地值是 `dev-cron-secret`。
 
 只跑单元测试不需要数据库。带数据库的端到端测试：
 
@@ -126,20 +135,38 @@ TEST_DATABASE_URL=postgres://keymint:keymint@127.0.0.1:5432/keymint_test npm tes
 
 数据库名必须包含 `test`，测试会清空这张库里的业务表。
 
-## 部署到 Render
+## 部署到 Render（免费套餐）
+
+`render.yaml` 使用 Render 免费规格：
+
+- Web 服务 `keymint`，`plan: free`。大约 15 分钟没有请求就会休眠。下一次请求（包括健康检查和每日任务）会重新拉起进程，冷启动要几十秒。
+- Postgres `keymint-db`，`plan: free`，PostgreSQL 16。**免费数据库大约在创建 30 天后过期，数据会消失。** 到期前导出，或在 Dashboard 里升级到付费规格。
+- 没有 Render Cron。每日任务由 GitHub Actions 调用 Web 服务，这样 GitHub 不需要连数据库，也能顺便叫醒休眠实例。
+
+步骤：
 
 1. 把这个仓库推到 GitHub。
-2. 在 Render Dashboard 选择 **New → Blueprint**，指向本仓库。`render.yaml` 会创建：
-   - Web 服务 `keymint`（starter，不休眠）
-   - Postgres `keymint-db`（`basic-256mb`，PostgreSQL 16）
-   - Cron `keymint-daily`，每天 00:15 UTC 刷新价格并写汇总
-3. 创建时 Render 会要求填写 `UPSTREAM_API_KEY`（环境组 `keymint-config`，`sync: false`）。到 <https://openrouter.ai/keys> 创建密钥并粘贴。Web 和 Cron 共用这一项。
-4. `SESSION_SECRET` 和 `ADMIN_TOKEN` 由 Blueprint 生成。部署完成后在 Web 服务的 Environment 里复制 `ADMIN_TOKEN`，打开 `https://<service>.onrender.com/admin` 粘贴。
-5. 可选：把 `APP_PUBLIC_URL` 加到 Web 服务环境变量，值为公网 `https://<service>.onrender.com`，这样 OpenRouter 的来源统计才正确。
-6. 健康检查是 `/healthz`。服务监听 `0.0.0.0:$PORT`。
-7. 确认服务起来之后，用一笔不低于 5 USD 的 USDT 或 USDC（只限上面四个合约）打到收款地址，在控制台提交交易哈希。
+2. 在 Render Dashboard 选择 **New → Blueprint**，指向本仓库。创建时 Render 会要求填写 `UPSTREAM_API_KEY`（环境组 `keymint-config`，`sync: false`）。到 <https://openrouter.ai/keys> 创建密钥并粘贴。
+3. Blueprint 会生成三个值，部署完成后到 Web 服务的 **Environment** 里复制：
+   - `SESSION_SECRET`：留在 Render，不要外传。
+   - `ADMIN_TOKEN`：打开 `https://<service>.onrender.com/admin` 时粘贴。
+   - `CRON_SECRET`：复制到下面的 GitHub Secret。
+4. `DATABASE_URL` 由 Blueprint 从 `keymint-db` 注入，不要手写，也不要放进 GitHub。
+5. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加：
 
-费用提示：starter Web、starter Cron 和 `basic-256mb` Postgres 都是付费规格。API 不适合用会休眠的 free Web。数据库如果改成 `free`，Render 的免费 Postgres 会在 30 天后过期。
+   | Secret | 值 |
+   | --- | --- |
+   | `APP_URL` | Web 服务的公网地址，带协议、不带路径，例如 `https://keymint.onrender.com` |
+   | `CRON_SECRET` | 和第 3 步 Render 里的 `CRON_SECRET` 完全相同 |
+
+6. 可选：把 `APP_PUBLIC_URL` 加到 Web 服务环境变量，值为同一个公网地址，这样 OpenRouter 的来源统计才正确。
+7. 打开 Actions 里的 **daily** 工作流，用 **Run workflow** 跑一次。它会 `POST /internal/daily`，请求头是 `X-Cron-Secret`。之后每天 00:15 UTC 自动跑。仓库长期没有活动时，GitHub 可能暂停定时工作流，需要再手动跑一次才会恢复。
+8. 健康检查路径是 `/healthz`（会执行 `SELECT 1`）。进程监听 `0.0.0.0:$PORT`。启动时会在打开端口之前跑迁移；`schema.sql` 全部是 `IF NOT EXISTS`，冷启动重复执行是安全的。数据库暂时连不上时会重试大约 45 秒。
+9. 服务起来之后，用一笔不低于 5 USD 的 USDT 或 USDC（只限上面四个合约）打到收款地址，在控制台提交交易哈希。
+
+免费实例休眠后，第一次 API 调用会多等一轮冷启动。密钥和余额都在 Postgres 里，休眠不会把它们清掉。数据库过期则会清掉。
+
+已经按付费规格创建过的实例，Blueprint 同步不一定能把 plan 改成 `free`。那种情况在 Dashboard 里改规格，或新建一套 free 服务再把流量切过去。
 
 Blueprint 已按 Render 的 [render.yaml schema](https://render.com/schema/render.yaml.json) 校验。
 
@@ -159,7 +186,7 @@ npm run build
 
 ## 安全与合规
 
-- 不要把 `.env`、`UPSTREAM_API_KEY`、`ADMIN_TOKEN`、`SESSION_SECRET` 提交进仓库。
+- 不要把 `.env`、`UPSTREAM_API_KEY`、`ADMIN_TOKEN`、`SESSION_SECRET`、`CRON_SECRET` 或 `DATABASE_URL` 提交进仓库。GitHub 只放 `APP_URL` 和 `CRON_SECRET` 两个 Actions Secret。
 - 这是记账额度，不是链上托管。错链、错误代币和原生币转账无法自动找回。
 - 服务不隶属 OpenAI、Anthropic、Google、xAI、DeepSeek 或 Meta。
 - 上线前请自行确认你所在地的支付、外汇和资金传输要求。本仓库的说明不是法律意见。

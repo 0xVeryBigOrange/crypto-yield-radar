@@ -1,5 +1,7 @@
-# Keymint: one web service, one Postgres database, and a daily cron.
+# Keymint on Render's free tier: one web service and one Postgres database.
+# The daily job is a GitHub Actions workflow that POSTs /internal/daily.
 # Apply in the Render Dashboard with a Blueprint. Set UPSTREAM_API_KEY when prompted.
+# Free Postgres expires about 30 days after creation.
 version: "1"
 
 envVarGroups:
@@ -36,14 +38,14 @@ databases:
   - name: keymint-db
     databaseName: keymint
     user: keymint
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"
 
 services:
   - type: web
     name: keymint
     runtime: node
-    plan: starter
+    plan: free
     healthCheckPath: /healthz
     buildCommand: npm ci --include=dev && npm run build
     startCommand: node dist/index.js
@@ -62,22 +64,5 @@ services:
         generateValue: true
       - key: ADMIN_TOKEN
         generateValue: true
-
-  - type: cron
-    name: keymint-daily
-    runtime: node
-    plan: starter
-    schedule: "15 0 * * *"
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: node dist/daily.js
-    autoDeploy: true
-    envVars:
-      - fromGroup: keymint-config
-      - key: DATABASE_URL
-        fromDatabase:
-          name: keymint-db
-          property: connectionString
-      - key: NODE_ENV
-        value: production
-      - key: NODE_VERSION
-        value: "22"
+      - key: CRON_SECRET
+        generateValue: true
