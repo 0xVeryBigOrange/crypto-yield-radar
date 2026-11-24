@@ -1,8 +1,8 @@
 {
-  "name": "keymint",
+  "name": "orange-omens",
   "version": "1.0.0",
   "private": true,
-  "description": "Prepaid OpenAI-compatible API relay. Users deposit USDT or USDC and call many models through one key.",
+  "description": "橙签 OrangeOmens — entertainment-only tarot for crypto and stock traders.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "express": "^4.21.2",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4"

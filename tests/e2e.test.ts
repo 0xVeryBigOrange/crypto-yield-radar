@@ -1,47 +1,38 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { applyMarkup } from "../src/billing.js";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { createPool, migrate, type Db } from "../src/db.js";
 import { parseDecimal } from "../src/money.js";
-import { clearPriceCache } from "../src/pricing.js";
-import {
-  CHAINS,
-  DEPOSIT_ADDRESS,
-  TRANSFER_TOPIC,
-  addressToTopic,
-} from "../src/payments.js";
-import { createProvider } from "../src/upstream.js";
+import { CHAINS, DEPOSIT_ADDRESS, TRANSFER_TOPIC, addressToTopic } from "../src/payments.js";
+import { DISCLAIMER } from "../src/text.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? "";
 const dbName = databaseUrl ? new URL(databaseUrl).pathname.replace(/^\//, "") : "";
 const enabled = Boolean(databaseUrl) && dbName.includes("test");
 
-describe.skipIf(!enabled)("http ledger", () => {
+describe.skipIf(!enabled)("orange omens http", () => {
   let pool: Db;
   let appServer: Server;
-  let upstreamServer: Server;
   let rpcServer: Server;
   let base: string;
   let cookie = "";
-  let receipt = makeReceipt(10_000_000n);
-  let seenUpstreamAuth = "";
+  const receipt = makeReceipt(10_000_000n);
 
   beforeAll(async () => {
     pool = createPool(databaseUrl);
     await migrate(pool);
-    await pool.query(`TRUNCATE TABLE users, model_prices, daily_summaries RESTART IDENTITY CASCADE`);
-    clearPriceCache();
-
+    await pool.query(
+      `TRUNCATE TABLE users, reading_cache, charges, user_readings, checkins, wallet_birthdays, daily_summaries RESTART IDENTITY CASCADE`,
+    );
     rpcServer = createServer((req, res) => {
       let body = "";
       req.on("data", (chunk) => {
         body += chunk;
       });
       req.on("end", () => {
-        const message = JSON.parse(body) as { id?: number; method?: string };
+        const message = JSON.parse(body || "{}") as { id?: number; method?: string };
         let result: unknown = null;
         if (message.method === "eth_chainId") result = "0x1";
         else if (message.method === "eth_blockNumber") result = "0x10";
@@ -50,255 +41,152 @@ describe.skipIf(!enabled)("http ledger", () => {
         res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id ?? 1, result }));
       });
     });
-    upstreamServer = createServer((req, res) => {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk;
-      });
-      req.on("end", () => {
-        seenUpstreamAuth = String(req.headers.authorization ?? "");
-        if (seenUpstreamAuth !== "Bearer test-upstream-key") {
-          res.writeHead(401).end("{}");
-          return;
-        }
-        if (req.method === "GET" && req.url?.includes("/models")) {
-          res.setHeader("content-type", "application/json");
-          res.end(
-            JSON.stringify({
-              data: [
-                {
-                  id: "openai/gpt-4o-mini",
-                  name: "GPT-4o mini",
-                  context_length: 128000,
-                  pricing: { prompt: "0.000001", completion: "0.001", request: "0" },
-                },
-              ],
-            }),
-          );
-          return;
-        }
-        const payload = body ? (JSON.parse(body) as { stream?: boolean; stream_options?: { include_usage?: boolean } }) : {};
-        if (payload.stream) {
-          if (payload.stream_options?.include_usage !== true) {
-            res.writeHead(400).end(JSON.stringify({ error: { message: "include_usage missing" } }));
-            return;
-          }
-          res.writeHead(200, { "content-type": "text/event-stream" });
-          res.write('data: {"choices":[{"index":0,"delta":{"content":"pon"}}]}\n\n');
-          res.write('data: {"choices":[{"index":0,"delta":{"content":"g"},"finish_reason":"stop"}]}\n\n');
-          res.write(
-            'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"cost":"0.001"}}\n\n',
-          );
-          res.end("data: [DONE]\n\n");
-          return;
-        }
-        res.setHeader("content-type", "application/json");
-        res.end(
-          JSON.stringify({
-            id: "cmpl",
-            choices: [{ index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" }],
-            usage: { prompt_tokens: 10, completion_tokens: 4, cost: "0.001" },
-          }),
-        );
-      });
-    });
-
     const rpcPort = await listen(rpcServer);
-    const upstreamPort = await listen(upstreamServer);
     process.env.DATABASE_URL = databaseUrl;
     process.env.SESSION_SECRET = "test-session-secret-value";
     process.env.ADMIN_TOKEN = "test-admin-token";
-    process.env.UPSTREAM_API_KEY = "test-upstream-key";
-    process.env.UPSTREAM_PROVIDER = "openai-compatible";
-    process.env.UPSTREAM_BASE_URL = `http://127.0.0.1:${upstreamPort}/v1`;
+    process.env.UPSTREAM_API_KEY = "";
+    process.env.UPSTREAM_PROVIDER = "openrouter";
     process.env.ETH_RPC_URL = `http://127.0.0.1:${rpcPort}`;
     process.env.BSC_RPC_URL = `http://127.0.0.1:${rpcPort}`;
     process.env.MIN_CONFIRMATIONS_ETH = "1";
     process.env.MIN_CONFIRMATIONS_BSC = "1";
     process.env.MIN_DEPOSIT_USD = "5";
-    process.env.MARKUP = "1.3";
     process.env.NODE_ENV = "test";
     process.env.APP_PUBLIC_URL = "http://127.0.0.1";
     process.env.CRON_SECRET = "test-cron-secret";
+    delete process.env.UPSTREAM_API_KEY;
     const config = loadConfig();
-    const provider = createProvider({
-      provider: config.upstreamProvider,
-      baseUrl: config.upstreamBaseUrl,
-      apiKey: config.upstreamApiKey ?? "",
-      appPublicUrl: config.appPublicUrl,
-      appName: config.appName,
-    });
-    appServer = buildApp({ config, pool, provider }).listen(0, "127.0.0.1");
+    appServer = buildApp({
+      config,
+      pool,
+      llm: null,
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ status: "1", result: [{ timeStamp: "1546300800" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    }).listen(0, "127.0.0.1");
     const appPort = await ready(appServer);
     base = `http://127.0.0.1:${appPort}`;
   });
 
   afterAll(async () => {
     await close(appServer);
-    await close(upstreamServer);
     await close(rpcServer);
     await pool?.end();
   });
 
-  test("deposits, bills streamed and buffered calls, and lets an admin adjust the balance", async () => {
+  test("serves a shared omen, credits a deposit once, and unlocks the full card", async () => {
     const health = await fetch(`${base}/healthz`);
     expect(health.status).toBe(200);
-
     const configRes = await fetch(`${base}/api/public-config`);
-    const configBody = (await configRes.json()) as { depositAddress: string };
+    const configBody = (await configRes.json()) as { depositAddress: string; disclaimer: string };
     expect(configBody.depositAddress).toBe(DEPOSIT_ADDRESS);
+    expect(configBody.disclaimer).toBe(DISCLAIMER);
+
+    const home = await fetch(`${base}/api/home`);
+    const homeBody = (await home.json()) as { sg: { summary: string; locked: boolean; sections: unknown[] } };
+    expect(homeBody.sg.locked).toBe(true);
+    expect(homeBody.sg.sections).toEqual([]);
+    const again = await fetch(`${base}/api/home`);
+    const againBody = (await again.json()) as { sg: { summary: string } };
+    expect(againBody.sg.summary).toBe(homeBody.sg.summary);
 
     const signup = await fetch(`${base}/api/auth/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "dev@example.com", password: "correct-horse" }),
+      body: JSON.stringify({ email: "reader@example.com", password: "correct-horse", nickname: "小橙" }),
     });
     expect(signup.status).toBe(201);
     cookie = cookieHeader(signup);
 
-    receipt = makeReceipt(1_000_000n);
-    const dust = await fetch(`${base}/api/deposits`, {
+    const missingAck = await fetch(`${base}/api/deposits`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ chain: "ethereum", txHash: `0x${"44".repeat(32)}` }),
+      body: JSON.stringify({ chain: "ethereum", txHash: `0x${"ab".repeat(32)}` }),
     });
-    expect(dust.status).toBe(400);
-    expect(((await dust.json()) as { error: { code: string } }).error.code).toBe("below_minimum");
+    expect(missingAck.status).toBe(400);
 
-    receipt = makeReceipt(10_000_000n);
-    const txHash = `0x${"55".repeat(32)}`;
-    const credited = await fetch(`${base}/api/deposits`, {
+    const deposited = await fetch(`${base}/api/deposits`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ chain: "ethereum", txHash }),
+      body: JSON.stringify({ chain: "ethereum", txHash: `0x${"ab".repeat(32)}`, ack: true }),
     });
-    expect(credited.status).toBe(201);
+    expect(deposited.status).toBe(201);
+    const depositBody = (await deposited.json()) as { balanceUsd: string };
+    expect(parseDecimal(depositBody.balanceUsd)).toBe(parseDecimal("10"));
     const duplicate = await fetch(`${base}/api/deposits`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ chain: "ethereum", txHash }),
+      body: JSON.stringify({ chain: "ethereum", txHash: `0x${"ab".repeat(32)}`, ack: true }),
     });
     expect(duplicate.status).toBe(409);
 
-    const created = await fetch(`${base}/api/keys`, {
+    const unlocked = await fetch(`${base}/api/omen/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ name: "laptop" }),
+      body: JSON.stringify({ edition: "sg", ack: true }),
     });
-    expect(created.status).toBe(201);
-    const key = ((await created.json()) as { token: string }).token;
-    expect(key.startsWith("sk-")).toBe(true);
-
-    const completion = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [{ role: "user", content: "ping" }],
-      }),
-    });
-    expect(completion.status).toBe(200);
-    const completionBody = (await completion.json()) as { choices: Array<{ message: { content: string } }>; usage: { cost?: unknown } };
-    expect(completionBody.choices[0]?.message.content).toBe("pong");
-    expect(completionBody.usage.cost).toBeUndefined();
-    expect(seenUpstreamAuth).toBe("Bearer test-upstream-key");
-
-    const stream = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        stream: true,
-        messages: [{ role: "user", content: "ping" }],
-      }),
-    });
-    expect(stream.status).toBe(200);
-    const streamed = await stream.text();
-    expect(streamed).toContain("pon");
-    expect(streamed).toContain("[DONE]");
-    expect(streamed).not.toContain("cost");
-
-    const charge = applyMarkup(parseDecimal("0.001"), parseDecimal("1.3"));
-    const me = (await (await fetch(`${base}/api/me`, { headers: { cookie } })).json()) as { balanceUsd: string };
-    expect(parseDecimal(me.balanceUsd)).toBe(parseDecimal("10") - charge - charge);
-
-    const tooBig = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        max_tokens: 128000,
-        messages: [{ role: "user", content: "ping" }],
-      }),
-    });
-    expect(tooBig.status).toBe(402);
-    const afterReject = (await (await fetch(`${base}/api/me`, { headers: { cookie } })).json()) as { balanceUsd: string };
-    expect(afterReject.balanceUsd).toBe(me.balanceUsd);
-
-    const keys = (await (await fetch(`${base}/api/keys`, { headers: { cookie } })).json()) as {
-      keys: Array<{ id: string }>;
+    expect(unlocked.status).toBe(200);
+    const unlockedBody = (await unlocked.json()) as {
+      reading: { locked: boolean; sections: unknown[]; sharePath: string };
+      balanceUsd: string;
     };
-    const revoked = await fetch(`${base}/api/keys/${keys.keys[0]?.id}/revoke`, {
+    expect(unlockedBody.reading.locked).toBe(false);
+    expect(unlockedBody.reading.sections.length).toBe(3);
+    expect(parseDecimal(unlockedBody.balanceUsd)).toBe(parseDecimal("9"));
+    const replay = await fetch(`${base}/api/omen/unlock`, {
       method: "POST",
-      headers: { cookie },
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ edition: "sg", ack: true }),
     });
-    expect(revoked.status).toBe(200);
-    const denied = await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${key}` } });
-    expect(denied.status).toBe(401);
+    const replayBody = (await replay.json()) as { balanceUsd: string; via: string };
+    expect(replayBody.via).toBe("replay");
+    expect(parseDecimal(replayBody.balanceUsd)).toBe(parseDecimal("9"));
+
+    const secret = await fetch(`${base}/api/wallet`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ address: `0x${"11".repeat(32)}`, tier: "free" }),
+    });
+    expect(secret.status).toBe(400);
+    expect(((await secret.json()) as { error: { code: string } }).error.code).toBe("private_key");
+
+    const wallet = await fetch(`${base}/api/wallet`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ address: "0x1234567890abcdef1234567890abcdef12345678", tier: "free" }),
+    });
+    expect(wallet.status).toBe(200);
+    const walletBody = (await wallet.json()) as { subject: string; summary: string };
+    expect(walletBody.subject).toBe("0x1234…5678");
+    expect(walletBody.summary).not.toContain("1234567890abcdef");
+
+    const card = await fetch(`${base}${unlockedBody.reading.sharePath}`);
+    const html = await card.text();
+    expect(html).toContain(DISCLAIMER);
+    const png = await fetch(`${base}${unlockedBody.reading.sharePath}.png`);
+    expect(png.headers.get("content-type")).toContain("image/png");
+    const bytes = Buffer.from(await png.arrayBuffer());
+    expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
 
     const adjusted = await fetch(`${base}/api/admin/adjustments`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-admin-token": "test-admin-token" },
-      body: JSON.stringify({ email: "dev@example.com", deltaUsd: "1.5", reason: "goodwill credit" }),
+      body: JSON.stringify({ email: "reader@example.com", deltaUsd: "-0.10", reason: "courtesy trim" }),
     });
     expect(adjusted.status).toBe(200);
-    const overview = await fetch(`${base}/api/admin/overview`, { headers: { "x-admin-token": "test-admin-token" } });
-    expect(overview.status).toBe(200);
-    const overviewBody = (await overview.json()) as { markupRevenueUsd: string; depositsUsd: string };
-    expect(parseDecimal(overviewBody.depositsUsd)).toBe(parseDecimal("10"));
-    expect(parseDecimal(overviewBody.markupRevenueUsd)).toBe(charge + charge - parseDecimal("0.001") - parseDecimal("0.001"));
 
-    const refreshed = await fetch(`${base}/api/admin/refresh`, {
-      method: "POST",
-      headers: { "x-admin-token": "test-admin-token" },
-    });
-    expect(refreshed.status).toBe(200);
-    const limitedKey = await fetch(`${base}/api/keys`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ name: "limited" }),
-    });
-    const limitedBody = (await limitedKey.json()) as { id: string; token: string };
-    await pool.query(`UPDATE api_keys SET rpm_limit = 1 WHERE id = $1`, [limitedBody.id]);
-    const withinLimit = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${limitedBody.token}` },
-      body: JSON.stringify({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "ping" }] }),
-    });
-    expect(withinLimit.status).toBe(200);
-    await withinLimit.arrayBuffer();
-    const overLimit = await fetch(`${base}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${limitedBody.token}` },
-      body: JSON.stringify({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "ping" }] }),
-    });
-    expect(overLimit.status).toBe(429);
-
-    const summaries = await fetch(`${base}/api/admin/summaries`, { headers: { "x-admin-token": "test-admin-token" } });
-    const summaryBody = (await summaries.json()) as { summaries: Array<{ requestCount: number }> };
-    expect(summaryBody.summaries.some((row) => row.requestCount >= 2)).toBe(true);
-
-    const cronDenied = await fetch(`${base}/internal/daily`, { method: "POST", headers: { "x-cron-secret": "nope" } });
-    expect(cronDenied.status).toBe(401);
     const daily = await fetch(`${base}/internal/daily`, {
       method: "POST",
       headers: { "x-cron-secret": "test-cron-secret" },
     });
     expect(daily.status).toBe(200);
-    const dailyBody = (await daily.json()) as { ok: boolean; priceRefresh: string; day: string };
+    const dailyBody = (await daily.json()) as { ok: boolean; omen: string; priceRefresh: string };
     expect(dailyBody.ok).toBe(true);
-    expect(dailyBody.priceRefresh).toBe("ok");
-    expect(dailyBody.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(dailyBody.omen).toBe("ready");
+    expect(dailyBody.priceRefresh).toBe("skipped");
   });
 });
 
@@ -326,9 +214,7 @@ function cookieHeader(response: Response): string {
 
 function listen(server: Server): Promise<number> {
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => {
-      resolve((server.address() as AddressInfo).port);
-    });
+    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
   });
 }
 

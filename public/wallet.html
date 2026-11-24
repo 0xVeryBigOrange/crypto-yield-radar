@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>钱包命盘 — 橙签</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="wallet">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">钱包命盘</p>
+    <h1>把地址交给牌</h1>
+    <p class="lede">只贴公开的 ERC / BSC 地址。私钥、助记词请自己收好，这里不收，看到了也会把你轰出去。</p>
+    <form id="wallet-form" class="stack">
+      <label><span>公开地址</span><input name="address" autocomplete="off" placeholder="0x 开头，42 位" required></label>
+      <button class="btn" type="submit">看短命盘</button>
+    </form>
+    <div id="wallet-result"></div>
+    <p class="fine">短版免费：灵魂数字、链上生日（查得到才写）、持仓脾气和追涨杀跌玩笑指数。完整长图 2 USDT。同一个地址，同一天，牌面一样。月卡期间不用单次付费，第二天自动换一批新词。</p>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
+  </main>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/">今日</a>
+    <a href="/wallet" aria-current="page">命盘</a>
+    <a href="/ask">提问</a>
+    <a href="/yuan">币缘</a>
+    <a href="/hepan">合盘</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
+</body>
+</html>

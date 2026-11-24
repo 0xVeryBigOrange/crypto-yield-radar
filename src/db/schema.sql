@@ -116,3 +116,66 @@ CREATE TABLE IF NOT EXISTS rate_buckets (
   hits INTEGER NOT NULL,
   PRIMARY KEY (api_key_id, window_start)
 );
+
+-- OrangeOmens profile fields. Existing Keymint rows stay valid.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by UUID REFERENCES users(id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pass_until TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS checkin_streak INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_checkin DATE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_referral_code_idx ON users (referral_code);
+
+CREATE TABLE IF NOT EXISTS reading_cache (
+  cache_key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  day DATE NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  source TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  full_slug TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT reading_source_check CHECK (source IN ('template', 'llm'))
+);
+
+CREATE INDEX IF NOT EXISTS reading_cache_day ON reading_cache (day DESC);
+
+CREATE TABLE IF NOT EXISTS charges (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  amount_usd NUMERIC(30, 12) NOT NULL,
+  ref TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT charges_user_ref UNIQUE (user_id, ref),
+  CONSTRAINT charges_amount_nonnegative CHECK (amount_usd >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS charges_user_created ON charges (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_readings (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cache_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, cache_key)
+);
+
+CREATE TABLE IF NOT EXISTS checkins (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day DATE NOT NULL,
+  score INTEGER NOT NULL,
+  streak INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, day)
+);
+
+CREATE TABLE IF NOT EXISTS wallet_birthdays (
+  address TEXT PRIMARY KEY,
+  first_seen DATE,
+  chain TEXT,
+  source TEXT NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

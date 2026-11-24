@@ -1,14 +1,27 @@
 import type { Express, Request } from "express";
-import { userFromSession, closeSession, createKey, createUser, authenticate, listKeys, openSession, revokeKey } from "../accounts.js";
-import { normalizeEmail, passwordOk } from "../auth.js";
+import {
+  authenticate,
+  closeSession,
+  createUser,
+  openSession,
+  publicUser,
+  updateNickname,
+  userFromSession,
+  type SessionUser,
+} from "../accounts.js";
+import { passwordOk, normalizeEmail } from "../auth.js";
+import { checkIn } from "../board.js";
+import { PRICE_USD, PRODUCT } from "../catalog.js";
 import type { Config } from "../config.js";
 import type { Db } from "../db.js";
 import { allowAttempt, asyncRoute, readCookie, sendApiError, sessionCookie } from "../http.js";
 import { log } from "../log.js";
 import { creditDeposit } from "../ledger.js";
-import { formatFull, formatUsd, parseDecimal } from "../money.js";
+import { formatUsd, parseDecimal } from "../money.js";
 import { chainsPublic, createRpc, DEPOSIT_ADDRESS, verifyDeposit, type ChainId } from "../payments.js";
-import { listPrices } from "../pricing.js";
+import { assertAck, history, ProductError } from "../product.js";
+import { purchasePass } from "../spend.js";
+import { DISCLAIMER, NON_REFUNDABLE, nicknameFromEmail, normalizeNickname } from "../text.js";
 
 export interface AccountDeps {
   config: Config;
@@ -18,50 +31,43 @@ export interface AccountDeps {
 export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
   app.get("/api/public-config", (_req, res) => {
     res.json({
-      product: deps.config.appName,
+      product: deps.config.appName || PRODUCT.name,
+      productEn: PRODUCT.nameEn,
+      owner: { name: PRODUCT.ownerName, handle: PRODUCT.ownerHandle, url: PRODUCT.ownerUrl },
       depositAddress: DEPOSIT_ADDRESS,
       minDepositUsd: formatUsd(deps.config.minDepositUsd),
-      markup: formatFull(deps.config.markup),
       chains: chainsPublic(),
       confirmations: { ethereum: deps.config.minConfEth, bsc: deps.config.minConfBsc },
+      prices: PRICE_USD,
+      disclaimer: DISCLAIMER,
+      nonRefundable: NON_REFUNDABLE,
     });
   });
 
-  app.get("/api/pricing", asyncRoute(async (_req, res) => {
-    const models = await listPrices(deps.pool, deps.config.markup);
-    res.setHeader("Cache-Control", "public, max-age=60");
-    res.json({
-      markup: formatFull(deps.config.markup),
-      updatedAt: models.reduce<string | null>((latest, model) => {
-        if (!latest || model.updatedAt > latest) return model.updatedAt;
-        return latest;
-      }, null),
-      models,
-    });
-  }));
-
   app.post("/api/auth/signup", asyncRoute(async (req, res) => {
     if (!allowAttempt(`signup:${req.ip}`, 10, 10 * 60 * 1000)) {
-      sendApiError(res, 429, "rate_limited", "Too many attempts. Try again later.");
+      sendApiError(res, 429, "rate_limited", "尝试太多次了，等一会儿再来。");
       return;
     }
     const email = normalizeEmail(req.body?.email);
     if (!email) {
-      sendApiError(res, 400, "bad_email", "Enter a valid email address.");
+      sendApiError(res, 400, "bad_email", "邮箱看起来不对。");
       return;
     }
     if (!passwordOk(req.body?.password)) {
-      sendApiError(res, 400, "weak_password", "Password must be 10 to 200 characters.");
+      sendApiError(res, 400, "weak_password", "密码需要 10 到 200 个字符。");
       return;
     }
+    const nickname = normalizeNickname(req.body?.nickname, nicknameFromEmail(email));
+    const ref = typeof req.body?.ref === "string" ? req.body.ref.trim().toLowerCase() : null;
     try {
-      const user = await createUser(deps.pool, email, req.body.password);
+      const user = await createUser(deps.pool, email, req.body.password, nickname, ref);
       const token = await openSession(deps.pool, user.id, deps.config.sessionSecret);
       res.setHeader("Set-Cookie", sessionCookie(token, deps.config.nodeEnv === "production", 30 * 24 * 60 * 60));
       res.status(201).json(publicUser(user));
     } catch (err) {
       if (isUniqueViolation(err)) {
-        sendApiError(res, 409, "email_taken", "That email is already registered.");
+        sendApiError(res, 409, "email_taken", "这个邮箱已经注册过了。");
         return;
       }
       throw err;
@@ -70,18 +76,18 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
 
   app.post("/api/auth/login", asyncRoute(async (req, res) => {
     if (!allowAttempt(`login:${req.ip}`, 10, 10 * 60 * 1000)) {
-      sendApiError(res, 429, "rate_limited", "Too many attempts. Try again later.");
+      sendApiError(res, 429, "rate_limited", "尝试太多次了，等一会儿再来。");
       return;
     }
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
     if (!email || typeof password !== "string") {
-      sendApiError(res, 401, "invalid_login", "Invalid email or password.");
+      sendApiError(res, 401, "invalid_login", "邮箱或密码不对。");
       return;
     }
     const user = await authenticate(deps.pool, email, password);
     if (!user) {
-      sendApiError(res, 401, "invalid_login", "Invalid email or password.");
+      sendApiError(res, 401, "invalid_login", "邮箱或密码不对。");
       return;
     }
     const token = await openSession(deps.pool, user.id, deps.config.sessionSecret);
@@ -98,16 +104,32 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
   app.get("/api/me", asyncRoute(async (req, res) => {
     const user = await currentUser(req, deps);
     if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
+      sendApiError(res, 401, "unauthorized", "请先登录。");
       return;
     }
     res.json(publicUser(user));
   }));
 
+  app.post("/api/profile", asyncRoute(async (req, res) => {
+    const user = await currentUser(req, deps);
+    if (!user) {
+      sendApiError(res, 401, "unauthorized", "请先登录。");
+      return;
+    }
+    const raw = typeof req.body?.nickname === "string" ? req.body.nickname.trim().replace(/\s+/g, "").slice(0, 16) : "";
+    if (!/^[\p{L}\p{N}_\-·]{1,16}$/u.test(raw)) {
+      sendApiError(res, 400, "bad_nickname", "外号用 1 到 16 个字，字母、数字或中文。");
+      return;
+    }
+    await updateNickname(deps.pool, user.id, raw);
+    const fresh = await currentUser(req, deps);
+    res.json(publicUser(fresh ?? user));
+  }));
+
   app.get("/api/deposits", asyncRoute(async (req, res) => {
     const user = await currentUser(req, deps);
     if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
+      sendApiError(res, 401, "unauthorized", "请先登录。");
       return;
     }
     const rows = await deps.pool.query<{
@@ -139,17 +161,26 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
   app.post("/api/deposits", asyncRoute(async (req, res) => {
     const user = await currentUser(req, deps);
     if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
+      sendApiError(res, 401, "unauthorized", "请先登录。");
       return;
     }
+    try {
+      assertAck(req.body);
+    } catch (err) {
+      if (err instanceof ProductError) {
+        sendApiError(res, err.status, err.code, err.message);
+        return;
+      }
+      throw err;
+    }
     if (!allowAttempt(`deposit:${user.id}`, 20, 10 * 60 * 1000)) {
-      sendApiError(res, 429, "rate_limited", "Too many deposit checks. Try again later.");
+      sendApiError(res, 429, "rate_limited", "查得太勤了，等一会儿再提交交易。");
       return;
     }
     const chain = parseChain(req.body?.chain);
     const txHash = typeof req.body?.txHash === "string" ? req.body.txHash.trim() : "";
     if (!chain) {
-      sendApiError(res, 400, "bad_chain", "Chain must be ethereum or bsc.");
+      sendApiError(res, 400, "bad_chain", "链只能是 ethereum 或 bsc。");
       return;
     }
     const rpc = createRpc(chain === "ethereum" ? deps.config.ethRpcUrl : deps.config.bscRpcUrl);
@@ -163,11 +194,8 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
         minDepositUsd: deps.config.minDepositUsd,
       });
     } catch (err) {
-      log("error", "deposit verification failed", {
-        chain,
-        name: err instanceof Error ? err.name : "error",
-      });
-      sendApiError(res, 502, "rpc_error", "Could not reach the chain RPC.");
+      log("error", "deposit verification failed", { chain, name: err instanceof Error ? err.name : "error" });
+      sendApiError(res, 502, "rpc_error", "暂时连不上这条链的节点。");
       return;
     }
     if (!verified.ok) {
@@ -189,7 +217,7 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
       confirmations: verified.confirmations,
     });
     if (!credited.ok) {
-      sendApiError(res, 409, "already_credited", "This transaction was already credited.");
+      sendApiError(res, 409, "already_credited", "这笔交易已经入过账了。");
       return;
     }
     const fresh = await currentUser(req, deps);
@@ -201,110 +229,76 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
       amountUsd: formatUsd(verified.amountUsd),
       confirmations: verified.confirmations,
       balanceUsd: fresh?.balanceUsd ?? null,
+      nonRefundable: NON_REFUNDABLE,
     });
   }));
 
-  app.get("/api/usage", asyncRoute(async (req, res) => {
+  app.post("/api/checkin", asyncRoute(async (req, res) => {
     const user = await currentUser(req, deps);
     if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
+      sendApiError(res, 401, "unauthorized", "登录后才能打卡。榜上只留外号。");
       return;
     }
-    const rows = await deps.pool.query<{
-      id: string;
-      model: string;
-      prompt_tokens: number;
-      completion_tokens: number;
-      upstream_cost_usd: string;
-      charged_usd: string;
-      status: string;
-      settlement: string;
-      created_at: Date;
-    }>(
-      `SELECT id, model, prompt_tokens, completion_tokens, upstream_cost_usd::text,
-              charged_usd::text, status, settlement, created_at
-       FROM usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
-      [user.id],
-    );
+    const result = await checkIn(deps.pool, user.id);
+    const fresh = await currentUser(req, deps);
+    res.json({ ...result, nickname: fresh?.nickname ?? user.nickname, checkedInToday: true });
+  }));
+
+  app.post("/api/pass", asyncRoute(async (req, res) => {
+    const user = await currentUser(req, deps);
+    if (!user) {
+      sendApiError(res, 401, "unauthorized", "请先登录。");
+      return;
+    }
+    try {
+      assertAck(req.body);
+    } catch (err) {
+      if (err instanceof ProductError) {
+        sendApiError(res, err.status, err.code, err.message);
+        return;
+      }
+      throw err;
+    }
+    const key = typeof req.body?.key === "string" && /^[A-Za-z0-9_-]{8,80}$/.test(req.body.key)
+      ? req.body.key
+      : `auto-${user.id.slice(0, 8)}-${Date.now()}`;
+    const paid = await purchasePass(deps.pool, user.id, key);
+    if (!paid.ok) {
+      sendApiError(res, 402, "insufficient_balance", `余额不够开通月卡。${NON_REFUNDABLE}。`, {
+        balanceUsd: formatUsd(paid.balance),
+        priceUsd: PRICE_USD.monthPass,
+      });
+      return;
+    }
+    const fresh = await currentUser(req, deps);
     res.json({
-      usage: rows.rows.map((row) => ({
-        id: row.id,
-        model: row.model,
-        promptTokens: row.prompt_tokens,
-        completionTokens: row.completion_tokens,
-        upstreamCostUsd: formatUsd(parseDecimal(row.upstream_cost_usd)),
-        chargedUsd: formatUsd(parseDecimal(row.charged_usd)),
-        status: row.status,
-        settlement: row.settlement,
-        createdAt: row.created_at.toISOString(),
-      })),
+      chargedUsd: formatUsd(paid.charged),
+      balanceUsd: fresh?.balanceUsd ?? formatUsd(paid.balance),
+      via: paid.via,
+      passUntil: fresh?.passUntil ?? null,
+      passActive: fresh?.passActive ?? false,
+      nonRefundable: NON_REFUNDABLE,
     });
   }));
 
-  app.get("/api/keys", asyncRoute(async (req, res) => {
+  app.get("/api/history", asyncRoute(async (req, res) => {
     const user = await currentUser(req, deps);
     if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
+      sendApiError(res, 401, "unauthorized", "请先登录。");
       return;
     }
-    res.json({ keys: await listKeys(deps.pool, user.id) });
-  }));
-
-  app.post("/api/keys", asyncRoute(async (req, res) => {
-    const user = await currentUser(req, deps);
-    if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
-      return;
-    }
-    const name = keyName(req.body?.name);
-    if (!name) {
-      sendApiError(res, 400, "bad_name", "Key name must be 1 to 40 characters.");
-      return;
-    }
-    const created = await createKey(deps.pool, user.id, name, deps.config.defaultRpm);
-    res.status(201).json(created);
-  }));
-
-  app.post("/api/keys/:id/revoke", asyncRoute(async (req, res) => {
-    const user = await currentUser(req, deps);
-    if (!user) {
-      sendApiError(res, 401, "unauthorized", "Sign in required.");
-      return;
-    }
-    const ok = await revokeKey(deps.pool, user.id, req.params.id);
-    if (!ok) {
-      sendApiError(res, 404, "not_found", "API key not found.");
-      return;
-    }
-    res.json({ ok: true });
+    res.json({ readings: await history(deps.pool, user.id) });
   }));
 }
 
-async function currentUser(req: Request, deps: AccountDeps) {
+export async function currentUser(req: Request, deps: AccountDeps): Promise<SessionUser | null> {
   return userFromSession(deps.pool, readCookie(req.header("cookie"), "km_session"), deps.config.sessionSecret);
-}
-
-function publicUser(user: { email: string; balanceUsd: string; reservedUsd: string; createdAt: string }) {
-  return {
-    email: user.email,
-    balanceUsd: user.balanceUsd,
-    reservedUsd: user.reservedUsd,
-    createdAt: user.createdAt,
-  };
 }
 
 function parseChain(input: unknown): ChainId | null {
   if (input === "ethereum" || input === "eth") return "ethereum";
   if (input === "bsc" || input === "bnb") return "bsc";
   return null;
-}
-
-function keyName(input: unknown): string | null {
-  if (input == null || input === "") return "default";
-  if (typeof input !== "string") return null;
-  const name = input.trim();
-  if (name.length < 1 || name.length > 40) return null;
-  return name;
 }
 
 function isUniqueViolation(err: unknown): boolean {

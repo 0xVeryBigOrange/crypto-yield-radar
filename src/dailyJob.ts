@@ -1,34 +1,40 @@
 import type { Db } from "./db.js";
 import { log } from "./log.js";
-import { refreshPrices } from "./pricing.js";
-import { utcDay, writeDailySummary } from "./summary.js";
-import type { UpstreamProvider } from "./upstream.js";
+import type { Llm } from "./llm.js";
+import { ensureOmen } from "./product.js";
+import { writeDailySummary } from "./summary.js";
+import { sgDay, usSessionDate } from "./time.js";
 
 export interface DailyResult {
   day: string;
+  usSession: string;
   models: number | null;
   priceRefresh: "ok" | "skipped" | "failed";
+  omen: "ready" | "failed";
 }
 
-/** Refresh cached prices, store yesterday's UTC summary, and drop stale rate-limit rows. */
-export async function runDailyJob(pool: Db, provider: UpstreamProvider | null): Promise<DailyResult> {
-  let models: number | null = null;
-  let priceRefresh: DailyResult["priceRefresh"] = "skipped";
-  if (provider) {
-    try {
-      models = await refreshPrices(pool, provider);
-      priceRefresh = "ok";
-      log("info", "daily price refresh", { models });
-    } catch (err) {
-      priceRefresh = "failed";
-      log("error", "daily price refresh failed", { name: err instanceof Error ? err.name : "error" });
-    }
-  } else {
-    log("warn", "UPSTREAM_API_KEY is not set; skipped the price refresh");
+/**
+ * Materialize today's shared omens, fold the Singapore day into daily_summaries,
+ * and drop personal readings older than 180 days. The GitHub workflow calls this
+ * through POST /internal/daily; the omen date itself rolls at 00:00 Asia/Singapore.
+ */
+export async function runDailyJob(pool: Db, llm: Llm | null): Promise<DailyResult> {
+  const day = sgDay();
+  const usSession = usSessionDate();
+  let priceRefresh: DailyResult["priceRefresh"] = llm ? "ok" : "skipped";
+  let models: number | null = llm ? 0 : null;
+  let omen: DailyResult["omen"] = "ready";
+  try {
+    const sg = await ensureOmen(pool, llm, "sg", day);
+    const us = await ensureOmen(pool, llm, "us", usSession);
+    if (llm) models = [sg, us].filter((item) => item.source === "llm").length;
+    log("info", "daily omens ready", { day, usSession, models });
+  } catch (err) {
+    omen = "failed";
+    if (llm) priceRefresh = "failed";
+    log("error", "daily omen refresh failed", { name: err instanceof Error ? err.name : "error" });
   }
-  const day = utcDay(-1);
   await writeDailySummary(pool, day);
-  await pool.query(`DELETE FROM rate_buckets WHERE window_start < now() - INTERVAL '2 days'`);
-  log("info", "daily summary stored", { day });
-  return { day, models, priceRefresh };
+  await pool.query(`DELETE FROM reading_cache WHERE kind <> 'omen' AND created_at < now() - INTERVAL '180 days'`);
+  return { day, usSession, models, priceRefresh, omen };
 }

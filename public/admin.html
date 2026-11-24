@@ -4,54 +4,46 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title data-en="Admin — Keymint">管理 — Keymint</title>
+  <title>管理 — 橙签</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;650&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true">K</span><span>Keymint</span></a>
-    <nav class="nav-links">
-      <a href="/dashboard" data-en="Dashboard">控制台</a>
-    </nav>
-    <div class="lang" role="group" aria-label="Language">
-      <button type="button" class="lang-btn" data-lang="zh">中文</button>
-      <button type="button" class="lang-btn" data-lang="en">EN</button>
-    </div>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="text-link" href="/account">我的</a>
   </header>
-  <main class="wrap section">
-    <section id="gate" class="card">
-      <h1 data-en="Admin">管理</h1>
-      <p class="callout" data-en="This page moves balances. The token is the ADMIN_TOKEN from the host environment. It stays in this browser tab only.">这个页面会改动余额。令牌是服务器上的 ADMIN_TOKEN，只保存在当前浏览器标签页。</p>
-      <form id="gate-form" class="form">
-        <label><span data-en="Admin token">管理令牌</span><input id="admin-token" type="password" autocomplete="off" required></label>
-        <button class="btn" type="submit" data-en="Open">进入</button>
-        <p class="msg" id="gate-msg" role="status"></p>
+  <main class="wrap">
+    <section id="gate" class="panel">
+      <h1>管理</h1>
+      <p class="fine">令牌是服务器上的 ADMIN_TOKEN，只留在这个标签页。</p>
+      <form id="gate-form" class="stack">
+        <label><span>管理令牌</span><input id="admin-token" type="password" autocomplete="off" required></label>
+        <button class="btn" type="submit">进入</button>
+        <p class="msg" id="gate-msg"></p>
       </form>
     </section>
     <section id="panel" class="hidden">
-      <div class="stats" id="stats"></div>
-      <article class="card section">
-        <h2 data-en="Adjust a balance">调整余额</h2>
-        <form id="adjust-form" class="form">
-          <label><span data-en="Email">邮箱</span><input name="email" type="email" required></label>
-          <label><span data-en="Delta USD (negative to deduct)">增减金额（美元，负数表示扣减）</span><input name="deltaUsd" required></label>
-          <label><span data-en="Reason">原因</span><input name="reason" required minlength="3"></label>
-          <button class="btn" type="submit" data-en="Apply">提交</button>
-          <p class="msg" id="adjust-msg" role="status"></p>
-        </form>
-        <p><button type="button" class="btn btn-ghost" id="refresh" data-en="Refresh prices and today's summary">刷新价格并写入今日汇总</button></p>
-        <p class="msg" id="refresh-msg" role="status"></p>
-      </article>
-      <article class="card"><h2 data-en="Users">用户</h2><div class="table-wrap"><table><thead><tr><th data-en="Email">邮箱</th><th data-en="Available">可用</th><th data-en="On hold">冻结</th></tr></thead><tbody id="user-body"></tbody></table></div></article>
-      <article class="card section"><h2 data-en="Deposits">充值</h2><div class="table-wrap"><table><thead><tr><th data-en="Email">邮箱</th><th data-en="Chain">链</th><th data-en="Amount">金额</th><th data-en="Transaction">交易</th></tr></thead><tbody id="deposit-body"></tbody></table></div></article>
-      <article class="card"><h2 data-en="Daily summaries">每日汇总</h2><div class="table-wrap"><table><thead><tr><th data-en="Day">日期</th><th data-en="Calls">调用</th><th data-en="Charged">扣费</th><th data-en="Markup">加价收入</th><th data-en="Deposits">充值</th></tr></thead><tbody id="summary-body"></tbody></table></div></article>
+      <div id="stats" class="grid"></div>
+      <form id="adjust-form" class="stack panel">
+        <h2>调整余额</h2>
+        <label><span>邮箱</span><input name="email" type="email" required></label>
+        <label><span>增减（负数是扣）</span><input name="deltaUsd" required></label>
+        <label><span>原因</span><input name="reason" required minlength="3"></label>
+        <button class="btn" type="submit">提交</button>
+        <p class="msg" id="adjust-msg"></p>
+      </form>
+      <p><button type="button" class="btn-ghost" id="refresh">刷新今日橙签和汇总</button></p>
+      <p class="msg" id="refresh-msg"></p>
+      <article class="panel"><h2>用户</h2><div class="table-wrap"><table><thead><tr><th>外号</th><th>邮箱</th><th>余额</th><th>月卡</th></tr></thead><tbody id="user-body"></tbody></table></div></article>
+      <article class="panel"><h2>充值</h2><div class="table-wrap"><table><thead><tr><th>邮箱</th><th>链</th><th>金额</th><th>交易</th></tr></thead><tbody id="deposit-body"></tbody></table></div></article>
+      <article class="panel"><h2>每日汇总</h2><div class="table-wrap"><table><thead><tr><th>日期</th><th>牌面</th><th>消费</th><th>充值</th></tr></thead><tbody id="summary-body"></tbody></table></div></article>
     </section>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
   </main>
-  <script src="/i18n.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>

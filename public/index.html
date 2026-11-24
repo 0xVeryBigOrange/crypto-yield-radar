@@ -3,183 +3,70 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title data-en="Keymint — prepaid OpenAI-compatible API">钥铸 Keymint — 用稳定币预付的大模型 API</title>
-  <meta name="description" data-en="Prepay with USDT or USDC. One OpenAI-compatible key for GPT, Claude, Gemini, Grok, DeepSeek, and Llama. Prices are upstream cost times a published markup." content="用 USDT 或 USDC 预充值，获得一把 OpenAI 兼容密钥，调用 GPT、Claude、Gemini、Grok、DeepSeek、Llama。价格是上游成本乘以公开倍率。">
+  <title>橙签 OrangeOmens — 交易员的每日塔罗</title>
+  <meta name="description" content="给盯盘的人一张牌、一句损话、一根心情K线。仅供娱乐，不构成投资、法律、医疗或心理建议。">
+  <meta property="og:title" content="橙签 OrangeOmens">
+  <meta property="og:description" content="今日橙签。仅供娱乐，不构成投资、法律、医疗或心理建议。">
+  <meta property="og:image" content="__ORIGIN__/og/today.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="__ORIGIN__/og/today.png">
+  <meta name="theme-color" content="#140e0b">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;650&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-  <header class="site-header">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true">K</span><span>Keymint</span></a>
-    <nav class="nav-links">
-      <a href="#how" data-en="How it works">怎么用</a>
-      <a href="#pricing" data-en="Pricing">价格</a>
-      <a href="#deposit" data-en="Deposit">充值</a>
-      <a href="#faq" data-en="FAQ">问答</a>
-      <a href="/dashboard" data-en="Dashboard">控制台</a>
-    </nav>
-    <div class="lang" role="group" aria-label="Language">
-      <button type="button" class="lang-btn" data-lang="zh">中文</button>
-      <button type="button" class="lang-btn" data-lang="en">EN</button>
-    </div>
+<body data-page="home">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
   </header>
-
   <main class="wrap">
     <section class="hero">
-      <div>
-        <p class="eyebrow" data-en="Stablecoin prepay · OpenAI compatible">稳定币预付 · OpenAI 兼容</p>
-        <h1 data-en="The models you want, paid with USDT.">没有信用卡，也能调用 GPT、Claude 和 Gemini。</h1>
-        <p class="lede" data-en="Keymint is a prepaid API relay for developers who cannot easily pay OpenAI or Anthropic directly. Deposit USDT or USDC, get your own sk- key, and call many models through one OpenAI-compatible endpoint. You pay upstream cost times a published markup, 1.3 by default.">Keymint 是给不方便直接支付 OpenAI / Anthropic 的开发者用的预付费 API 转发。充入 USDT 或 USDC，拿到自己的 sk- 密钥，用同一套 OpenAI Chat Completions 协议调用多家模型。费用是上游成本乘以公开倍率，默认 1.3。</p>
-        <div class="actions">
-          <a class="btn" href="/dashboard" data-en="Create an account">创建账号</a>
-          <a class="btn btn-ghost" href="#pricing" data-en="See marked-up prices">查看加价后的价格</a>
-        </div>
-      </div>
-      <aside class="receipt" aria-label="pricing example">
-        <header>
-          <span data-en="Worked example, not a real user">计价示例，不是真实用户</span>
-          <span>×<span id="markup-value">1.3</span></span>
-        </header>
-        <dl>
-          <dt data-en="Model">模型</dt><dd>openai/gpt-4o-mini</dd>
-          <dt data-en="Formula">公式</dt><dd data-en="upstream cost × markup">上游成本 × 倍率</dd>
-          <dt data-en="If upstream cost is $0.0100">若上游成本为 $0.0100</dt><dd data-en="you pay $0.0130">你支付 $0.0130</dd>
-        </dl>
-        <p class="total" data-en="Actual token prices are in the table below and change when the daily sync runs.">实际单价见下方价格表，并在每日同步后更新。</p>
-      </aside>
+      <p class="eyebrow">OrangeOmens · 大橙子的牌桌</p>
+      <h1>今日橙签</h1>
+      <p class="lede">给盯盘的人一张牌、一句损话、一个心情标签。K线只画心情，不画价钱。牌面每天 0 点（新加坡时间）换一批，所有人看到的是同一张。</p>
+      <svg class="hero-art" viewBox="0 0 360 84" aria-hidden="true">
+        <rect x="8" y="8" width="70" height="68" rx="8" fill="#f6efe2"/>
+        <text x="18" y="48" fill="#c2410c" font-size="22" font-family="serif">橙</text>
+        <rect x="100" y="30" width="10" height="36" rx="1" fill="#1f9d62"/>
+        <rect x="122" y="18" width="10" height="48" rx="1" fill="#d4534c"/>
+        <rect x="144" y="26" width="10" height="40" rx="1" fill="#1f9d62"/>
+        <rect x="166" y="40" width="10" height="26" rx="1" fill="#d4534c"/>
+        <rect x="188" y="22" width="10" height="44" rx="1" fill="#1f9d62"/>
+        <rect x="210" y="34" width="10" height="32" rx="1" fill="#d4534c"/>
+        <rect x="232" y="16" width="10" height="50" rx="1" fill="#1f9d62"/>
+      </svg>
     </section>
-
-    <section class="band">
-      <article><strong data-en="USDT and USDC">USDT 与 USDC</strong><span data-en="Ethereum and BNB Smart Chain">以太坊与 BNB Smart Chain</span></article>
-      <article><strong data-en="One OpenAI-compatible key">一把 OpenAI 兼容密钥</strong><span data-en="GPT, Claude, Gemini, Grok, DeepSeek, Llama">GPT、Claude、Gemini、Grok、DeepSeek、Llama</span></article>
-      <article><strong data-en="Usage from the provider">按上游返回的用量计费</strong><span data-en="No prompt logs">不记录提示词</span></article>
-      <article><strong data-en="Hold, then settle">先冻结，再结算</strong><span data-en="Requests stop when the balance is too low">余额不够就拒绝，不透支</span></article>
+    <div id="omen-sg"><p class="fine">今日的牌正在落座…</p></div>
+    <div id="omen-us"></div>
+    <section class="panel">
+      <h2>欧气榜</h2>
+      <p class="fine">只有外号和玩笑分。没有地址，没有收益，不能换成余额。</p>
+      <ol class="board" id="board"></ol>
+      <button type="button" class="btn" id="checkin">今日打卡</button>
+      <p class="msg" id="checkin-msg"></p>
     </section>
-
-    <section class="section" id="how">
-      <h2 data-en="Three steps">三步开始</h2>
-      <div class="steps">
-        <article class="card"><div class="num">01</div><h3 data-en="Create an account">注册</h3><p data-en="Email and a password of at least 10 characters. Passwords are stored with scrypt.">使用邮箱和至少 10 位的密码。密码以 scrypt 保存。</p></article>
-        <article class="card"><div class="num">02</div><h3 data-en="Deposit, then submit the tx">转账并提交哈希</h3><p data-en="Everyone shares one deposit address. The transfer is credited to the account that submits its transaction hash first, after the chain confirms it.">所有用户共用一个收款地址。交易确认后，由提交该交易哈希的账户入账。</p></article>
-        <article class="card"><div class="num">03</div><h3 data-en="Point your SDK at this host">把 SDK 指到这里</h3><p data-en="Use the model ids from the price table, usually vendor/model, such as openai/gpt-4o-mini.">模型 ID 用价格表里的写法，通常是厂商/模型，例如 openai/gpt-4o-mini。</p></article>
-      </div>
+    <section class="grid">
+      <a class="feature" href="/wallet"><strong>钱包命盘</strong><span>公开地址的灵魂数字和一句持仓脾气。不要私钥。</span></a>
+      <a class="feature" href="/ask"><strong>塔罗提问</strong><span>每天一抽免费。只回答心情和节奏。</span></a>
+      <a class="feature" href="/yuan"><strong>币缘 / 股缘</strong><span>代号或合约，换一个玩笑缘分。</span></a>
+      <a class="feature" href="/hepan"><strong>合盘</strong><span>跟大橙子，或把链接丢给朋友。</span></a>
     </section>
-
-    <section class="section" id="code">
-      <h2 data-en="Call it like OpenAI">像调用 OpenAI 一样调用</h2>
-      <div class="tabs" role="tablist">
-        <button type="button" class="tab" data-tab="curl" aria-selected="true">curl</button>
-        <button type="button" class="tab" data-tab="python" aria-selected="false">Python</button>
-      </div>
-      <pre data-panel="curl"><code>curl https://your-service.example.com/v1/chat/completions \
-  -H "Authorization: Bearer sk-your-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openai/gpt-4o-mini",
-    "messages": [{"role": "user", "content": "hello"}]
-  }'</code></pre>
-      <pre data-panel="python" hidden><code>from openai import OpenAI
-
-client = OpenAI(
-    api_key="sk-your-key",
-    base_url="https://your-service.example.com/v1",
-)
-
-stream = client.chat.completions.create(
-    model="openai/gpt-4o-mini",
-    messages=[{"role": "user", "content": "用一句话解释预付费 API。"}],
-    stream=True,
-    stream_options={"include_usage": True},
-)
-for event in stream:
-    if event.choices and event.choices[0].delta.content:
-        print(event.choices[0].delta.content, end="")</code></pre>
-    </section>
-
-    <section class="section" id="pricing">
-      <h2 data-en="Prices you actually pay">你实际支付的价格</h2>
-      <p class="muted" data-en="Per million tokens, already multiplied by the markup. The upstream catalog is cached and refreshed daily.">单位是每百万 token 的美元价格，已经乘过倍率。上游目录会缓存，并每天刷新。</p>
-      <div class="panel">
-        <input id="price-filter" data-en-placeholder="Filter by model id" placeholder="按模型 ID 筛选" aria-label="filter models">
-        <p class="muted" id="price-updated"></p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th data-en="Model">模型</th>
-                <th data-en="Input / 1M">输入 / 百万</th>
-                <th data-en="Output / 1M">输出 / 百万</th>
-                <th data-en="Context">上下文</th>
-              </tr>
-            </thead>
-            <tbody id="price-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="deposit">
-      <h2 data-en="Deposit address">收款地址</h2>
-      <div class="panel deposit-box">
-        <img id="deposit-qr" alt="QR code for the deposit address" width="180" height="180">
-        <div>
-          <p class="addr" id="deposit-address">…</p>
-          <p class="grouped" id="deposit-grouped"></p>
-          <p><button type="button" class="btn" id="copy-address"><span data-en="Copy address">复制地址</span></button></p>
-          <p class="callout" data-en="Send only the tokens listed below, on the chain named next to each contract. Native ETH, BNB, and any other token will not be credited. The same address is used on both chains. Minimum deposit is shown beside the form in the dashboard.">只转入下面列出的代币，并且要走对应的链。原生 ETH、BNB 以及其他代币不会入账。两条链使用同一个地址。最低充值金额在控制台里显示。</p>
-          <p class="muted"><span data-en="Minimum">最低充值</span> $<span id="min-deposit">…</span></p>
-          <ul class="token-list" id="token-list"></ul>
-          <p><a class="btn btn-ghost" href="/dashboard" data-en="Submit a transaction hash">去控制台提交交易哈希</a></p>
-        </div>
-      </div>
-      <noscript><p>请启用 JavaScript 以加载收款地址，避免抄写错误。</p></noscript>
-    </section>
-
-    <section class="section faq" id="faq">
-      <h2 data-en="FAQ">问答</h2>
-      <details open>
-        <summary data-en="Which models can I call?">可以调用哪些模型？</summary>
-        <p data-en="Whatever the upstream catalog prices. With the default OpenRouter upstream that includes GPT, Claude, Gemini, Grok, DeepSeek, and Llama families. Use the id from /v1/models, not a shortened brand name.">上游目录里有价格的模型。默认上游是 OpenRouter，因此包含 GPT、Claude、Gemini、Grok、DeepSeek、Llama 等系列。请使用 /v1/models 返回的 ID，而不是品牌简称。</p>
-      </details>
-      <details>
-        <summary data-en="How is a request billed?">一次请求怎么计费？</summary>
-        <p data-en="Before the call we hold an estimate: roughly prompt size plus max_tokens, times the cached unit price, times the markup, times a safety buffer (1.25 by default). After the call we prefer the cost reported by the upstream, otherwise token counts times the cached price, then multiply by the markup and refund the unused hold. Streaming requests ask the upstream for usage. If usage never arrives but output was delivered, the hold is captured.">转发前会按提示词长度和 max_tokens 估算费用，乘以缓存单价、倍率和安全缓冲（默认 1.25），并从余额里冻结。结束后优先采用上游返回的 cost，否则用 token 数乘缓存单价，再乘倍率，并把多冻的部分退回。流式请求会向上游要求返回 usage。如果已经输出内容但没有 usage，就按冻结金额结算。</p>
-      </details>
-      <details>
-        <summary data-en="What if my balance is too low?">余额不够会怎样？</summary>
-        <p data-en="The request is rejected with HTTP 402 before it is forwarded. The balance is not allowed to go negative.">请求会在转发前以 HTTP 402 拒绝，余额不会变成负数。</p>
-      </details>
-      <details>
-        <summary data-en="How do deposits get attributed?">充值怎么记到我的账户？</summary>
-        <p data-en="USDT and USDC are treated as one USD each. You submit the transaction hash in the dashboard. The server checks a public RPC: the transaction succeeded, it contains a Transfer of a supported token to our address, it has enough confirmations, it meets the minimum, and that chain plus hash has never been credited. The first account to submit a valid hash receives the credit.">USDT 和 USDC 按 1 美元记 1 美元。你在控制台提交交易哈希。服务端通过公开 RPC 核对：交易成功、包含一笔转到我们地址的受支持代币 Transfer、确认数足够、达到最低金额，并且这条链上的这个哈希没有入过账。第一个提交有效哈希的账户获得这笔额度。</p>
-      </details>
-      <details>
-        <summary data-en="Can I get a refund?">可以退款吗？</summary>
-        <p data-en="Spent usage is not refunded. Chain transfers are irreversible. Unused balance can only be returned manually by the operator, and this page does not promise an automated refund.">已经消耗的调用不退。链上转账不可逆。未使用余额只能由运营方人工退回，本页不承诺自动退款。</p>
-      </details>
-      <details>
-        <summary data-en="Are you OpenAI or Anthropic?">你们是 OpenAI 或 Anthropic 吗？</summary>
-        <p data-en="No. This is an independent reseller in front of an OpenAI-compatible upstream, OpenRouter by default. Availability depends on that upstream.">不是。这是独立的转售服务，默认接在 OpenRouter 前面。可用性取决于上游。</p>
-      </details>
-    </section>
-
-    <section class="section" id="terms">
-      <h2 data-en="Terms and disclaimer">条款与声明</h2>
-      <div class="card">
-        <p data-en="Balances are ledger credits on this service, not a wallet balance and not a claim on a specific on-chain coin after deposit. The operator can adjust a balance; every adjustment is stored with a reason.">余额是本服务的记账额度，不是钱包余额，入账之后也不对应某一枚链上代币的保管凭证。运营方可以调整余额，每次调整都会留下原因。</p>
-        <p data-en="You are responsible for following the law that applies to you, including sanctions and acceptable-use rules of the model providers. Do not submit secrets in prompts you would not send to the upstream.">你需要遵守适用于你的法律，包括制裁规则和模型提供方的使用政策。不要在提示词里放入你不愿意发给上游的秘密。</p>
-        <p data-en="The service is provided as available. A failed call before any output is not charged. This text is a product description, not legal advice. Confirm the licensing and money-transmission rules where you operate before taking payments.">服务按可用状态提供。在产生输出之前失败的调用不会扣费。这段文字是产品说明，不是法律意见。在收款前请自行确认你所在地的牌照和资金传输要求。</p>
-      </div>
-    </section>
+    <footer class="site-footer">
+      <p>牌桌主人 <a href="https://x.com/0xVeryBigOrange">@0xVeryBigOrange</a>，外号大橙子。他也不知道下一根心情K线。</p>
+      <p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p>
+    </footer>
   </main>
-  <footer class="site-footer">
-    <span>Keymint</span>
-    <span data-en="No invented user counts. Prices follow the upstream catalog.">没有编造的用户数量。价格跟随上游目录。</span>
-  </footer>
-  <script src="/i18n.js"></script>
-  <script src="/landing.js"></script>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/" aria-current="page">今日</a>
+    <a href="/wallet">命盘</a>
+    <a href="/ask">提问</a>
+    <a href="/yuan">币缘</a>
+    <a href="/hepan">合盘</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
 </body>
 </html>
