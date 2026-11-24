@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>橙签 OrangeOmens — 交易员的每日塔罗</title>
-  <meta name="description" content="给盯盘的人一张牌、一句损话、一根心情K线。仅供娱乐，不构成投资、法律、医疗或心理建议。">
+  <title>橙签 OrangeOmens — 今日运势中心</title>
+  <meta name="description" content="今日签、塔罗、星座、黄历。基础免费，深度解读用橙币。仅供娱乐，不构成投资、法律、医疗或心理建议。">
   <meta property="og:title" content="橙签 OrangeOmens">
   <meta property="og:description" content="今日橙签。仅供娱乐，不构成投资、法律、医疗或心理建议。">
   <meta property="og:image" content="__ORIGIN__/og/today.png">
@@ -24,9 +24,9 @@
   </header>
   <main class="wrap">
     <section class="hero">
-      <p class="eyebrow">OrangeOmens · 大橙子的牌桌</p>
-      <h1>今日橙签</h1>
-      <p class="lede">给盯盘的人一张牌、一句损话、一个心情标签。K线只画心情，不画价钱。牌面每天 0 点（新加坡时间）换一批，所有人看到的是同一张。</p>
+      <p class="eyebrow">OrangeOmens · 今日运势中心</p>
+      <h1>先玩，后解锁</h1>
+      <p class="lede">塔罗、灵签、易经、星座、黄历、灵数、解梦、符文，基础结果免费，不用登录。深度解读才用橙币，大多数 20，凯尔特十字 50。新用户送 3 次。</p>
       <svg class="hero-art" viewBox="0 0 360 84" aria-hidden="true">
         <rect x="8" y="8" width="70" height="68" rx="8" fill="#f6efe2"/>
         <text x="18" y="48" fill="#c2410c" font-size="22" font-family="serif">橙</text>
@@ -39,7 +39,8 @@
         <rect x="232" y="16" width="10" height="50" rx="1" fill="#1f9d62"/>
       </svg>
     </section>
-    <div id="omen-sg"><p class="fine">今日的牌正在落座…</p></div>
+    <section class="today-grid" id="today"><p class="fine">今日的牌正在落座…</p></section>
+    <div id="omen-sg"></div>
     <div id="omen-us"></div>
     <section class="panel">
       <h2>欧气榜</h2>
@@ -49,10 +50,18 @@
       <p class="msg" id="checkin-msg"></p>
     </section>
     <section class="grid">
-      <a class="feature" href="/wallet"><strong>钱包命盘</strong><span>公开地址的灵魂数字和一句持仓脾气。不要私钥。</span></a>
-      <a class="feature" href="/ask"><strong>塔罗提问</strong><span>每天一抽免费。只回答心情和节奏。</span></a>
-      <a class="feature" href="/yuan"><strong>币缘 / 股缘</strong><span>代号或合约，换一个玩笑缘分。</span></a>
-      <a class="feature" href="/hepan"><strong>合盘</strong><span>跟大橙子，或把链接丢给朋友。</span></a>
+      <a class="feature" href="/tarot"><strong>塔罗</strong><span>78 张正逆位。自己洗牌、切牌、点选。</span></a>
+      <a class="feature" href="/stick"><strong>求签</strong><span>原创 100 签。摇签筒，先看诗。</span></a>
+      <a class="feature" href="/iching"><strong>易经</strong><span>三枚铜钱，六次。本卦和变卦。</span></a>
+      <a class="feature" href="/astro"><strong>星座</strong><span>每日运势和配对。</span></a>
+      <a class="feature" href="/zodiac"><strong>生肖</strong><span>十二属相的今日语气。</span></a>
+      <a class="feature" href="/almanac"><strong>黄历</strong><span>宜忌免费。不是钦天监。</span></a>
+      <a class="feature" href="/number"><strong>灵数</strong><span>生日收成一个数字。</span></a>
+      <a class="feature" href="/dream"><strong>解梦</strong><span>写下关键词。</span></a>
+      <a class="feature" href="/rune"><strong>符文</strong><span>北欧鲁纳，旁边是雷诺曼。</span></a>
+      <a class="feature" href="/wallet"><strong>钱包命盘</strong><span>公开地址。不要私钥。</span></a>
+      <a class="feature" href="/yuan"><strong>币缘</strong><span>代号或合约，一句缘分。</span></a>
+      <a class="feature" href="/hepan"><strong>合盘</strong><span>和大橙子，或邀请朋友。</span></a>
     </section>
     <footer class="site-footer">
       <p>牌桌主人 <a href="https://x.com/0xVeryBigOrange">@0xVeryBigOrange</a>，外号大橙子。他也不知道下一根心情K线。</p>
@@ -61,10 +70,8 @@
   </main>
   <nav class="tabbar" aria-label="牌桌">
     <a href="/" aria-current="page">今日</a>
-    <a href="/wallet">命盘</a>
-    <a href="/ask">提问</a>
-    <a href="/yuan">币缘</a>
-    <a href="/hepan">合盘</a>
+    <a href="/play">玩法</a>
+    <a href="/collection">图鉴</a>
     <a href="/account">我的</a>
   </nav>
   <script src="/ui.js"></script>

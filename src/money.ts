@@ -53,6 +53,16 @@ export function formatDecimal(value: bigint, places: number): string {
 }
 
 /** Currency display: at least two fraction digits, no trailing-zero padding beyond that. */
+/** 1 USD = 100 橙币. Display is a whole number of coins. */
+export function formatCoins(value: bigint): string {
+  const unit = 10n ** BigInt(SCALE - 2);
+  const neg = value < 0n;
+  let v = neg ? -value : value;
+  v = (v + unit / 2n) / unit;
+  const body = v.toString();
+  return neg && v !== 0n ? `-${body}` : body;
+}
+
 export function formatUsd(value: bigint): string {
   const neg = value < 0n;
   const full = formatFull(neg ? -value : value);

@@ -58,7 +58,7 @@ export function shareHtml(view: ReadingView, pageUrl: string, imageUrl: string):
       ${sections}
       ${
         view.locked
-          ? `<p class="fine">完整牌面 ${escapeHtml(view.priceUsd ?? "")} USDT。${escapeHtml(NON_REFUNDABLE)}。</p>`
+          ? `<p class="fine">深度解读 ${escapeHtml(view.priceCoins ?? "")} 橙币（${escapeHtml(view.priceUsd ?? "")} USDT）。免费部分已经完整。${escapeHtml(NON_REFUNDABLE)}。</p>`
           : `<p class="quote">「${escapeHtml(view.quote)}」</p>`
       }
       <div class="candle-box" aria-hidden="true">
@@ -68,7 +68,7 @@ export function shareHtml(view: ReadingView, pageUrl: string, imageUrl: string):
       <p class="disclaimer">${escapeHtml(view.disclaimer || DISCLAIMER)}</p>
       <p class="fine">${escapeHtml(pageUrl)}</p>
     </article>
-    <p class="fine center">完整三张、命盘和合盘在牌桌上。月卡 ${PRICE_USD.monthPass} USDT。</p>
+    <p class="fine center">基础结果免费。月卡 ${PRICE_USD.monthPass} USDT，期间深度解读不另扣。带上邀请参数 ?ref= 朋友注册，双方都有橙币。</p>
   </main>
 </body>
 </html>`;

@@ -23,6 +23,17 @@ export function pick<T>(rng: Rng, items: readonly T[]): T {
   return items[Math.floor(rng() * items.length)] as T;
 }
 
+export function shuffle<T>(rng: Rng, items: readonly T[]): T[] {
+  const pool = [...items];
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(rng() * (index + 1));
+    const current = pool[index] as T;
+    pool[index] = pool[swap] as T;
+    pool[swap] = current;
+  }
+  return pool;
+}
+
 export function take<T>(rng: Rng, items: readonly T[], count: number): T[] {
   const pool = [...items];
   const out: T[] = [];

@@ -1,7 +1,7 @@
 import type { Db } from "./db.js";
 import { log } from "./log.js";
 import type { Llm } from "./llm.js";
-import { ensureOmen } from "./product.js";
+import { ensureOmen, warmDaily } from "./product.js";
 import { writeDailySummary } from "./summary.js";
 import { sgDay, usSessionDate } from "./time.js";
 
@@ -11,6 +11,9 @@ export interface DailyResult {
   models: number | null;
   priceRefresh: "ok" | "skipped" | "failed";
   omen: "ready" | "failed";
+  almanac: "ready" | "failed";
+  horoscopes: number;
+  stick: "ready" | "failed";
 }
 
 /**
@@ -24,6 +27,9 @@ export async function runDailyJob(pool: Db, llm: Llm | null): Promise<DailyResul
   let priceRefresh: DailyResult["priceRefresh"] = llm ? "ok" : "skipped";
   let models: number | null = llm ? 0 : null;
   let omen: DailyResult["omen"] = "ready";
+  let almanac: DailyResult["almanac"] = "ready";
+  let stick: DailyResult["stick"] = "ready";
+  let horoscopes = 0;
   try {
     const sg = await ensureOmen(pool, llm, "sg", day);
     const us = await ensureOmen(pool, llm, "us", usSession);
@@ -34,7 +40,21 @@ export async function runDailyJob(pool: Db, llm: Llm | null): Promise<DailyResul
     if (llm) priceRefresh = "failed";
     log("error", "daily omen refresh failed", { name: err instanceof Error ? err.name : "error" });
   }
+  try {
+    const warmed = await warmDaily(pool, llm, day);
+    horoscopes = warmed.horoscopes;
+  } catch (err) {
+    almanac = "failed";
+    stick = "failed";
+    log("error", "daily pack failed", { name: err instanceof Error ? err.name : "error" });
+  }
   await writeDailySummary(pool, day);
-  await pool.query(`DELETE FROM reading_cache WHERE kind <> 'omen' AND created_at < now() - INTERVAL '180 days'`);
-  return { day, usSession, models, priceRefresh, omen };
+  await pool.query(
+    `DELETE FROM reading_cache
+     WHERE created_at < now() - INTERVAL '180 days'
+       AND kind IN ('wallet', 'tarot', 'ticker', 'compat', 'stick', 'iching', 'dream', 'rune', 'lenormand')
+       AND cache_key NOT LIKE 'stick:public:%'
+       AND cache_key NOT LIKE 'tarot:public:%'`,
+  );
+  return { day, usSession, models, priceRefresh, omen, almanac, horoscopes, stick };
 }

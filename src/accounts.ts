@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword, hashSession, newSessionToken, normalizeEmail, verifyPassword } from "./auth.js";
+import { WELCOME_DEEP_CREDITS } from "./catalog.js";
 import type { Db } from "./db.js";
-import { formatUsd, parseDecimal } from "./money.js";
+import { formatCoins, formatUsd, parseDecimal } from "./money.js";
+import { grantInvite } from "./rewards.js";
 import { sgDay } from "./time.js";
 import { nicknameFromEmail } from "./text.js";
 
@@ -21,6 +23,8 @@ export interface SessionUser {
   checkinStreak: number;
   lastCheckin: string | null;
   checkedInToday: boolean;
+  deepCredits: number;
+  orangeCoins: string;
 }
 
 export interface PublicProfile {
@@ -41,10 +45,11 @@ export async function createUser(
     const id = randomUUID();
     try {
       await pool.query(
-        `INSERT INTO users (id, email, password_hash, nickname, referral_code, referred_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [id, email, passwordHash, nickname, newReferralCode(), referred?.id ?? null],
+        `INSERT INTO users (id, email, password_hash, nickname, referral_code, referred_by, deep_credits)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [id, email, passwordHash, nickname, newReferralCode(), referred?.id ?? null, WELCOME_DEEP_CREDITS],
       );
+      if (referred) await grantInvite(pool, referred.id, id);
       const user = await getUser(pool, id);
       if (!user) throw new Error("user missing");
       return user;
@@ -80,9 +85,10 @@ export async function getUser(pool: Db, id: string): Promise<SessionUser | null>
     pass_until: Date | null;
     checkin_streak: number;
     last_checkin: string | null;
+    deep_credits: number;
   }>(
     `SELECT id, email, balance_usd::text, reserved_usd::text, created_at, nickname, referral_code,
-            pass_until, checkin_streak, last_checkin::text
+            pass_until, checkin_streak, last_checkin::text, deep_credits
      FROM users WHERE id = $1`,
     [id],
   );
@@ -122,6 +128,8 @@ export async function getUser(pool: Db, id: string): Promise<SessionUser | null>
     checkinStreak: row.checkin_streak ?? 0,
     lastCheckin: row.last_checkin,
     checkedInToday: row.last_checkin === today,
+    deepCredits: row.deep_credits ?? 0,
+    orangeCoins: formatCoins(parseDecimal(row.balance_usd)),
   };
 }
 
@@ -184,6 +192,8 @@ export function publicUser(user: SessionUser) {
     checkinStreak: user.checkinStreak,
     lastCheckin: user.lastCheckin,
     checkedInToday: user.checkedInToday,
+    deepCredits: user.deepCredits,
+    orangeCoins: user.orangeCoins,
   };
 }
 

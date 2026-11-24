@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { PASS_DAYS, priceAmount } from "./catalog.js";
 import type { Db } from "./db.js";
 import { withTx } from "./db.js";
-import { formatFull, formatUsd, parseDecimal } from "./money.js";
+import { formatCoins, formatFull, formatUsd, parseDecimal } from "./money.js";
 
 export type SpendDecision =
   | { via: "replay" }
   | { via: "pass" }
+  | { via: "credit" }
   | { via: "balance"; charge: bigint }
   | { via: "insufficient" };
 
@@ -16,10 +17,12 @@ export function decideSpend(input: {
   already: boolean;
   amount: bigint;
   coverWithPass: boolean;
+  credits?: number;
 }): SpendDecision {
   if (input.already) return { via: "replay" };
   if (input.coverWithPass && input.passActive) return { via: "pass" };
   if (input.amount < 0n) return { via: "insufficient" };
+  if ((input.credits ?? 0) > 0 && input.amount > 0n) return { via: "credit" };
   if (input.balance < input.amount) return { via: "insufficient" };
   return { via: "balance", charge: input.amount };
 }
@@ -28,7 +31,8 @@ export interface SpendOk {
   ok: true;
   charged: bigint;
   balance: bigint;
-  via: "replay" | "pass" | "balance";
+  credits: number;
+  via: "replay" | "pass" | "balance" | "credit";
 }
 
 export interface SpendFail {
@@ -42,8 +46,8 @@ export async function spend(
   opts: { userId: string; amount: bigint; ref: string; kind: string; coverWithPass: boolean },
 ): Promise<SpendOk | SpendFail> {
   return withTx(pool, async (client) => {
-    const user = await client.query<{ balance_usd: string; pass_until: Date | null }>(
-      `SELECT balance_usd::text, pass_until FROM users WHERE id = $1 FOR UPDATE`,
+    const user = await client.query<{ balance_usd: string; pass_until: Date | null; deep_credits: number }>(
+      `SELECT balance_usd::text, pass_until, deep_credits FROM users WHERE id = $1 FOR UPDATE`,
       [opts.userId],
     );
     const row = user.rows[0];
@@ -59,6 +63,7 @@ export async function spend(
       already: (existing.rowCount ?? 0) > 0,
       amount: opts.amount,
       coverWithPass: opts.coverWithPass,
+      credits: row.deep_credits ?? 0,
     });
     if (decision.via === "insufficient") return { ok: false as const, code: "insufficient_balance" as const, balance };
     if (decision.via === "replay") {
@@ -66,11 +71,29 @@ export async function spend(
         ok: true as const,
         charged: parseDecimal(existing.rows[0]?.amount_usd ?? "0"),
         balance,
+        credits: row.deep_credits ?? 0,
         via: "replay" as const,
       };
     }
-    const charge = decision.via === "pass" ? 0n : decision.charge;
-    if (charge > 0n) {
+    let credits = row.deep_credits ?? 0;
+    let charge = 0n;
+    if (decision.via === "credit") {
+      const spent = await client.query(
+        `UPDATE users SET deep_credits = deep_credits - 1 WHERE id = $1 AND deep_credits > 0 RETURNING deep_credits`,
+        [opts.userId],
+      );
+      if ((spent.rowCount ?? 0) === 0) {
+        if (balance < opts.amount) return { ok: false as const, code: "insufficient_balance" as const, balance };
+        charge = opts.amount;
+        await client.query(`UPDATE users SET balance_usd = balance_usd - $2::numeric WHERE id = $1`, [
+          opts.userId,
+          formatFull(charge),
+        ]);
+      } else {
+        credits = Number(spent.rows[0]?.deep_credits ?? credits - 1);
+      }
+    } else if (decision.via === "balance") {
+      charge = decision.charge;
       await client.query(`UPDATE users SET balance_usd = balance_usd - $2::numeric WHERE id = $1`, [
         opts.userId,
         formatFull(charge),
@@ -84,7 +107,8 @@ export async function spend(
       ok: true as const,
       charged: charge,
       balance: balance - charge,
-      via: decision.via,
+      credits,
+      via: decision.via === "credit" && charge > 0n ? "balance" : decision.via,
     };
   });
 }
@@ -113,6 +137,7 @@ export async function purchasePass(
         ok: true as const,
         charged: parseDecimal(existing.rows[0]?.amount_usd ?? "0"),
         balance,
+        credits: 0,
         via: "replay" as const,
       };
     }
@@ -128,14 +153,22 @@ export async function purchasePass(
       `INSERT INTO charges (id, user_id, kind, amount_usd, ref) VALUES ($1, $2, 'pass', $3::numeric, $4)`,
       [randomUUID(), userId, formatFull(amount), ref],
     );
-    return { ok: true as const, charged: amount, balance: balance - amount, via: "balance" as const };
+    return { ok: true as const, charged: amount, balance: balance - amount, credits: 0, via: "balance" as const };
   });
 }
 
-export function formatSpend(result: SpendOk): { chargedUsd: string; balanceUsd: string; via: SpendOk["via"] } {
+export function formatSpend(result: SpendOk): {
+  chargedUsd: string;
+  balanceUsd: string;
+  orangeCoins: string;
+  deepCredits: number;
+  via: SpendOk["via"];
+} {
   return {
     chargedUsd: formatUsd(result.charged),
     balanceUsd: formatUsd(result.balance),
+    orangeCoins: formatCoins(result.balance),
+    deepCredits: result.credits,
     via: result.via,
   };
 }

@@ -12,6 +12,7 @@ import { ProductError } from "./product.js";
 import { registerAccountRoutes } from "./routes/account.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerInternalRoutes } from "./routes/internal.js";
+import { registerPlayRoutes } from "./routes/plays.js";
 import { registerReadRoutes } from "./routes/read.js";
 
 export interface AppDeps {
@@ -23,6 +24,17 @@ export interface AppDeps {
 
 const PAGES: Record<string, string> = {
   "/": "index.html",
+  "/play": "play.html",
+  "/tarot": "tarot.html",
+  "/stick": "stick.html",
+  "/iching": "iching.html",
+  "/astro": "astro.html",
+  "/zodiac": "zodiac.html",
+  "/almanac": "almanac.html",
+  "/number": "number.html",
+  "/dream": "dream.html",
+  "/rune": "rune.html",
+  "/collection": "collection.html",
   "/wallet": "wallet.html",
   "/ask": "ask.html",
   "/yuan": "yuan.html",
@@ -63,7 +75,7 @@ export function buildApp(deps: AppDeps): Express {
         type: "svg",
         margin: 1,
         width: 280,
-        color: { dark: "#24150f", light: "#00000000" },
+        color: { dark: "#f3d7a1", light: "#00000000" },
       });
       res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=86400");
@@ -77,6 +89,7 @@ export function buildApp(deps: AppDeps): Express {
   registerAdminRoutes(app, deps);
   registerInternalRoutes(app, deps);
   registerReadRoutes(app, deps);
+  registerPlayRoutes(app, deps);
 
   for (const [route, file] of Object.entries(PAGES)) {
     app.get(route, (_req, res) => sendPage(res, publicDir, file, deps.config.appPublicUrl));

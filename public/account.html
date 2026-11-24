@@ -45,7 +45,7 @@
     </form>
     <section class="panel" id="pay">
       <h2>充值</h2>
-      <p>USDT / USDC，以太坊或 BNB Smart Chain，1:1 记成美元余额。最低 <strong id="min-deposit">5</strong>。收款地址：</p>
+      <p id="deposit-hint">USDT / USDC，以太坊或 BSC。1 USDT = 100 橙币。最低 <strong id="min-deposit">1</strong>。推荐 BSC，以太坊主网 gas 较贵。收款地址：</p>
       <p class="addr" id="deposit-address">加载中…</p>
       <img src="/api/deposit-qr.svg" width="180" height="180" alt="收款地址二维码">
       <p><strong>虚拟服务一经交付不予退款。</strong>错链、错误代币和原生币转不进来，也无法自动找回。这是站内额度，不是托管。</p>
@@ -53,8 +53,8 @@
       <form id="deposit-form" class="stack">
         <label><span>链</span>
           <select name="chain">
-            <option value="ethereum">Ethereum</option>
-            <option value="bsc">BNB Smart Chain</option>
+            <option value="bsc" selected>BNB Smart Chain（推荐）</option>
+            <option value="ethereum">Ethereum（gas 较贵）</option>
           </select>
         </label>
         <label><span>交易哈希</span><input name="txHash" required placeholder="0x 加 64 位"></label>
@@ -64,25 +64,27 @@
       </form>
     </section>
     <form id="pass-form" class="stack panel">
-      <h2>月卡 9.9 USDT</h2>
-      <p>30 天。完整牌面不用单次付费，合盘随便开，钱包命盘每天都能重看。下个月继续，算按月刷新。</p>
+      <h2>月卡 <span id="pass-price">2.99 USDT</span></h2>
+      <p>30 天。深度解读不另扣。基础结果本来就免费。续费从到期日之后再顺延 30 天。</p>
       <p><strong>虚拟服务一经交付不予退款。</strong></p>
       <label class="ack"><input name="ack" type="checkbox" required> 我已知晓：虚拟服务一经交付不予退款。仅供娱乐，不构成投资、法律、医疗或心理建议。</label>
       <button class="btn" type="submit">开通月卡</button>
       <p class="msg" id="pass-msg"></p>
     </form>
     <section class="panel">
-      <h2>我的牌</h2>
+      <h2>连签日历</h2>
+      <ul class="calendar" id="calendar"><li class="fine">登录后显示。</li></ul>
+    </section>
+    <section class="panel">
+      <h2>占卜日记</h2>
       <ul id="history"><li class="fine">登录后显示。</li></ul>
     </section>
     <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
   </main>
   <nav class="tabbar" aria-label="牌桌">
     <a href="/">今日</a>
-    <a href="/wallet">命盘</a>
-    <a href="/ask">提问</a>
-    <a href="/yuan">币缘</a>
-    <a href="/hepan">合盘</a>
+    <a href="/play">玩法</a>
+    <a href="/collection">图鉴</a>
     <a href="/account" aria-current="page">我的</a>
   </nav>
   <script src="/ui.js"></script>

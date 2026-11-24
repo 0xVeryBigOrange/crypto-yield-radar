@@ -100,6 +100,9 @@ describe.skipIf(!enabled)("orange omens http", () => {
     });
     expect(signup.status).toBe(201);
     cookie = cookieHeader(signup);
+    const signupBody = (await signup.json()) as { deepCredits: number };
+    expect(signupBody.deepCredits).toBe(3);
+    await pool.query(`UPDATE users SET deep_credits = 0 WHERE email = 'reader@example.com'`);
 
     const missingAck = await fetch(`${base}/api/deposits`, {
       method: "POST",
@@ -135,7 +138,7 @@ describe.skipIf(!enabled)("orange omens http", () => {
     };
     expect(unlockedBody.reading.locked).toBe(false);
     expect(unlockedBody.reading.sections.length).toBe(3);
-    expect(parseDecimal(unlockedBody.balanceUsd)).toBe(parseDecimal("9"));
+    expect(parseDecimal(unlockedBody.balanceUsd)).toBe(parseDecimal("9.8"));
     const replay = await fetch(`${base}/api/omen/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
@@ -143,7 +146,7 @@ describe.skipIf(!enabled)("orange omens http", () => {
     });
     const replayBody = (await replay.json()) as { balanceUsd: string; via: string };
     expect(replayBody.via).toBe("replay");
-    expect(parseDecimal(replayBody.balanceUsd)).toBe(parseDecimal("9"));
+    expect(parseDecimal(replayBody.balanceUsd)).toBe(parseDecimal("9.8"));
 
     const secret = await fetch(`${base}/api/wallet`, {
       method: "POST",

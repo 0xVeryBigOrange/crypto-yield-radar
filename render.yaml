@@ -24,7 +24,7 @@ envVarGroups:
       - key: MARKUP
         value: "1.3"
       - key: MIN_DEPOSIT_USD
-        value: "5"
+        value: "1"
       - key: DEFAULT_RPM
         value: "60"
       - key: RESERVE_BUFFER

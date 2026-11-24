@@ -190,7 +190,7 @@ export async function verifyDeposit(opts: {
     return fail("amount_untrusted", "Transfer amount is outside the supported range.");
   }
   if (amountUsd < opts.minDepositUsd) {
-    return fail("below_minimum", `Minimum deposit is ${formatUsd(opts.minDepositUsd)} USD.`, {
+    return fail("below_minimum", `最低充值 ${formatUsd(opts.minDepositUsd)} USDT。建议走 BSC，以太坊主网 gas 更贵。`, {
       amountUsd: formatUsd(amountUsd),
       minimumUsd: formatUsd(opts.minDepositUsd),
     });

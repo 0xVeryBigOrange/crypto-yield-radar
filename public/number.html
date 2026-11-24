@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>生命灵数 — 橙签</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="number">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">数字命理</p>
+    <h1>生命灵数</h1>
+    <p class="lede">生日收成一个数字，免费告诉你它的比喻。个人年在深度解读里，20 橙币。</p>
+    <form id="number-form" class="stack">
+      <label><span>生日</span><input name="birthday" type="date" required></label>
+      <button class="btn" type="submit">计算</button>
+    </form>
+    <div id="result"></div>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
+  </main>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/">今日</a>
+    <a href="/play" aria-current="page">玩法</a>
+    <a href="/collection">图鉴</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
+  <script src="/plays.js"></script>
+</body>
+</html>
