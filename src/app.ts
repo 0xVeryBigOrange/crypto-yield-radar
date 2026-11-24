@@ -94,7 +94,19 @@ export function buildApp(deps: AppDeps): Express {
   for (const [route, file] of Object.entries(PAGES)) {
     app.get(route, (_req, res) => sendPage(res, publicDir, file, deps.config.appPublicUrl));
   }
-  app.use(express.static(publicDir, { index: false, maxAge: "1h" }));
+  app.use(
+    express.static(publicDir, {
+      index: false,
+      maxAge: "1h",
+      setHeaders(res, filePath) {
+        // ui.js used to stay cached for an hour after a deploy, so a cold browser
+        // could keep painting the old homepage. Scripts and styles revalidate.
+        if (filePath.endsWith(".js") || filePath.endsWith(".css")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
 
   app.use((req, res) => {
     if (req.path.startsWith("/api") || req.path.startsWith("/internal") || req.path.startsWith("/s/")) {

@@ -14,27 +14,94 @@ function esc(value) {
   })[char]);
 }
 
-async function api(path, body) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    method: body ? "POST" : "GET",
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = null;
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
   }
-  if (!response.ok) {
-    const error = new Error(data?.error?.message || "请求失败");
-    error.status = response.status;
-    error.data = data;
-    throw error;
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+function isEnglishTransport(message) {
+  return /failed to fetch|networkerror|load failed|network request failed|timed out|timeout|aborted|the user aborted/i.test(message);
+}
+
+function friendlyError(error) {
+  const status = Number(error?.status || 0);
+  const raw = String(error?.message || "").trim();
+  const serverSaid = raw && raw !== "请求失败" && !isEnglishTransport(raw);
+  if (serverSaid && status !== 502 && status !== 503 && status !== 504) return raw;
+  if (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    error?.name === "TimeoutError" ||
+    error?.name === "AbortError" ||
+    isEnglishTransport(raw)
+  ) {
+    return "牌桌暂时没有接上。免费实例可能在醒，请再试一次。";
   }
-  return data;
+  if (serverSaid) return raw;
+  if (/cannot read propert|is not a function|unexpected token/i.test(raw)) return "牌面没有完整回来，请再试一次。";
+  return raw || "牌桌这边慢了一下，请再试一次。";
+}
+
+function asFriendly(error) {
+  if (error && error.__friendly) return error;
+  const wrapped = new Error(friendlyError(error));
+  wrapped.status = error?.status;
+  wrapped.data = error?.data;
+  wrapped.__friendly = true;
+  return wrapped;
+}
+
+async function api(path, body, options) {
+  const opts = options || {};
+  const method = body ? "POST" : "GET";
+  const attempts = opts.attempts ?? (method === "GET" ? 3 : 2);
+  const timeoutMs = opts.timeoutMs ?? 30000;
+  for (let i = 0; i < attempts; i += 1) {
+    if (i > 0) {
+      if (typeof opts.onRetry === "function") opts.onRetry(i, attempts);
+      await wait(Math.min(1000 * 2 ** (i - 1), 8000));
+    }
+    try {
+      const response = await fetch(path, {
+        credentials: "same-origin",
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: timeoutSignal(timeoutMs),
+      });
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+      if (!response.ok) {
+        const error = new Error(data?.error?.message || "请求失败");
+        error.status = response.status;
+        error.data = data;
+        const retryStatus = method === "GET" && (response.status === 502 || response.status === 503 || response.status === 504);
+        if (!retryStatus || i === attempts - 1) throw asFriendly(error);
+        continue;
+      }
+      return data;
+    } catch (error) {
+      if (error && error.__friendly) throw error;
+      const network = !error?.status;
+      const canRetry = i < attempts - 1 && (method === "GET" || (network && i === 0));
+      if (!canRetry) throw asFriendly(error);
+    }
+  }
+  throw asFriendly(new Error("请求失败"));
 }
 
 function $(id) {
@@ -125,6 +192,7 @@ function extraLines(view) {
 }
 
 function cardHtml(view) {
+  if (!view || typeof view !== "object") return `<p class="msg bad">牌面没有完整回来，请再试一次。</p>`;
   const cards = (view.cards ?? [])
     .map((card) => `<div class="mini-card"><strong>${esc(card.name || "")}</strong><span>${esc(card.epithet || "")}</span></div>`)
     .join("");
@@ -209,9 +277,9 @@ function payBox(view, onPay) {
     try {
       await onPay();
     } catch (error) {
-      msg.textContent = error.message;
+      msg.textContent = friendlyError(error);
       msg.classList.add("bad");
-      if (error.status === 402) msg.textContent = `${error.message} 去「我的」充值。`;
+      if (error.status === 402) msg.textContent = `${friendlyError(error)} 去「我的」充值。`;
     }
   });
   return box;
@@ -230,38 +298,53 @@ function copy(url, button) {
 
 function showError(node, error) {
   if (!node) return;
-  node.textContent = error?.message || "没有写成";
+  node.textContent = friendlyError(error);
   node.classList.add("bad");
 }
 
-async function renderHome() {
-  const sg = $("omen-sg");
-  const us = $("omen-us");
-  const home = await api("/api/home");
+function setPending(message) {
   const today = $("today");
-  if (today) {
-    const chips = (home.signs || [])
-      .map((item) => `<a class="chip" href="/astro?sign=${encodeURIComponent(item.sign)}">${esc(item.sign)} ${esc(item.score)}</a>`)
-      .join("");
-    const yi = home.almanac?.basics?.[0]?.text || "";
-    const ji = home.almanac?.basics?.[1]?.text || "";
-    today.innerHTML = `<a class="today-tile" href="#omen-sg"><span>交易员今日</span><strong>${esc(home.sg?.cards?.[0]?.name || "橙签")}</strong><p>${esc(home.sg?.summary || "")}</p></a>
-      <a class="today-tile" href="/tarot"><span>今日塔罗</span><strong>${esc(home.tarot?.cards?.[0]?.name || "一牌")}</strong><p>${esc(home.tarot?.summary || "")}</p></a>
-      <a class="today-tile" href="/stick"><span>今日一签</span><strong>${esc(home.stick?.title || "求签")}</strong><p>${esc(home.stick?.cards?.[0]?.epithet || "")}</p></a>
-      <a class="today-tile" href="/almanac"><span>黄历 · ${esc(home.yearAnimal || "")}年</span><strong>宜忌</strong><p>宜 ${esc(yi)}。忌 ${esc(ji)}。</p></a>
-      <div class="chip-row">${chips}</div>`;
+  if (!today) return;
+  today.innerHTML = `<p class="pending"><span class="pulse" aria-hidden="true"></span><span>${esc(message)}</span></p>`;
+}
+
+function paintToday(home) {
+  const today = $("today");
+  if (!today) return;
+  const chips = (home.signs || [])
+    .map((item) => `<a class="chip" href="/astro?sign=${encodeURIComponent(item.sign)}">${esc(item.sign)} ${esc(item.score)}</a>`)
+    .join("");
+  const yi = home.almanac?.basics?.[0]?.text || "";
+  const ji = home.almanac?.basics?.[1]?.text || "";
+  today.innerHTML = `<a class="today-tile" href="#omen-sg"><span>交易员今日</span><strong>${esc(home.sg?.cards?.[0]?.name || "橙签")}</strong><p>${esc(home.sg?.summary || "")}</p></a>
+    <a class="today-tile" href="/tarot"><span>今日塔罗</span><strong>${esc(home.tarot?.cards?.[0]?.name || "一牌")}</strong><p>${esc(home.tarot?.summary || "")}</p></a>
+    <a class="today-tile" href="/stick"><span>今日一签</span><strong>${esc(home.stick?.title || "求签")}</strong><p>${esc(home.stick?.cards?.[0]?.epithet || "")}</p></a>
+    <a class="today-tile" href="/almanac"><span>黄历 · ${esc(home.yearAnimal || "")}年</span><strong>宜忌</strong><p>宜 ${esc(yi)}。忌 ${esc(ji)}。</p></a>
+    <div class="chip-row">${chips}</div>`;
+}
+
+function paintEdition(host, view, edition) {
+  if (!host) return;
+  if (!view) {
+    host.innerHTML = `<p class="msg bad">这一张签没有回来。</p>`;
+    return;
   }
-  const draw = (host, view, edition) => {
+  try {
     mountReading(host, view, async () => {
       const paid = await api("/api/omen/unlock", { edition, tier: "full", ack: true });
       mountReading(host, asReading(paid), null);
     });
-  };
-  draw(sg, home.sg, "sg");
-  draw(us, home.us, "us");
+  } catch (error) {
+    host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
+  }
+}
+
+function paintBoard(rows) {
   const list = $("board");
-  list.innerHTML = home.leaderboard.length
-    ? home.leaderboard
+  if (!list) return;
+  const board = Array.isArray(rows) ? rows : [];
+  list.innerHTML = board.length
+    ? board
         .map(
           (row, index) =>
             `<li><span class="rank">${index + 1}</span><span>${esc(row.nickname)}</span><span>${esc(row.streak)} 天</span><strong>${esc(row.score)}</strong></li>`,
@@ -270,13 +353,63 @@ async function renderHome() {
     : `<li><span></span><span>今天还没有人打卡。</span><span></span><span></span></li>`;
 }
 
-async function bootHome() {
-  const sg = $("omen-sg");
-  try {
-    await renderHome();
-  } catch (error) {
-    sg.textContent = error.message;
+async function renderHome(onRetry) {
+  const home = await api("/api/home", undefined, { onRetry });
+  if (!home || typeof home !== "object") {
+    const error = new Error("牌面没有完整回来，请再试一次。");
+    error.status = 502;
+    throw error;
   }
+  paintToday(home);
+  paintEdition($("omen-sg"), home.sg, "sg");
+  paintEdition($("omen-us"), home.us, "us");
+  paintBoard(home.leaderboard);
+}
+
+let homeTicket = 0;
+
+function showHomeFailure(error) {
+  const today = $("today");
+  if (today) {
+    today.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p><button type="button" class="btn" id="home-retry">再试一次</button>`;
+    $("home-retry")?.addEventListener("click", () => {
+      bootHome();
+    });
+  }
+  for (const id of ["omen-sg", "omen-us"]) {
+    const node = $(id);
+    if (node && !node.querySelector(".sheet")) node.textContent = "";
+  }
+}
+
+async function bootHome() {
+  const ticket = ++homeTicket;
+  bindCheckin();
+  const run = () =>
+    renderHome(() => {
+      if (ticket === homeTicket) setPending("牌桌还在醒，正在再试…");
+    });
+  setPending("今日的签正在落下…");
+  try {
+    await run();
+    return;
+  } catch (error) {
+    if (ticket !== homeTicket) return;
+    setPending("牌桌还在醒，正在再试…");
+    await wait(5000);
+    if (ticket !== homeTicket) return;
+    try {
+      setPending("今日的签正在落下…");
+      await run();
+      return;
+    } catch (again) {
+      if (ticket !== homeTicket) return;
+      showHomeFailure(again || error);
+    }
+  }
+}
+
+function bindCheckin() {
   const button = $("checkin");
   if (button && !button.dataset.bound) {
     button.dataset.bound = "1";
@@ -307,7 +440,7 @@ function bootWallet() {
         mountReading(host, asReading(paid), null);
       });
     } catch (error) {
-      host.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     }
   });
 }
@@ -330,7 +463,7 @@ function bootAsk() {
         mountReading(host, asReading(paid), null);
       });
     } catch (error) {
-      host.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     }
   });
 }
@@ -348,7 +481,7 @@ function bootYuan() {
         mountReading(host, asReading(paid), null);
       });
     } catch (error) {
-      host.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     }
   });
 }
@@ -375,7 +508,7 @@ async function bootHepan() {
       mountReading(orange, asReading(paid), null);
     });
   } catch (error) {
-    orange.textContent = error.message;
+    orange.textContent = friendlyError(error);
   }
   $("code-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -388,7 +521,7 @@ async function bootHepan() {
         mountReading(host, asReading(paid), null);
       });
     } catch (error) {
-      host.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     }
   });
   $("pair-form")?.addEventListener("submit", async (event) => {
@@ -413,19 +546,27 @@ async function bootHepan() {
         mountReading(host, asReading(paid), null);
       });
     } catch (error) {
-      host.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      host.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     }
   });
 }
 
 async function bootAccount() {
-  const config = await api("/api/public-config");
-  $("deposit-address").textContent = config.depositAddress;
-  $("min-deposit").textContent = config.minDepositUsd;
-  const hint = $("deposit-hint");
-  if (hint && config.depositHint) hint.textContent = config.depositHint;
-  const passPrice = $("pass-price");
-  if (passPrice) passPrice.textContent = `${config.prices?.monthPass || "2.99"} USDT（${config.priceCoins?.monthPass || "299"} 橙币）`;
+  let config = null;
+  try {
+    config = await api("/api/public-config");
+  } catch (error) {
+    const address = $("deposit-address");
+    if (address) address.textContent = friendlyError(error);
+  }
+  if (config) {
+    $("deposit-address").textContent = config.depositAddress;
+    $("min-deposit").textContent = config.minDepositUsd;
+    const hint = $("deposit-hint");
+    if (hint && config.depositHint) hint.textContent = config.depositHint;
+    const passPrice = $("pass-price");
+    if (passPrice) passPrice.textContent = `${config.prices?.monthPass || "2.99"} USDT（${config.priceCoins?.monthPass || "299"} 橙币）`;
+  }
   const me = window.__me;
   const session = $("session");
   if (me) {
@@ -443,10 +584,15 @@ async function bootAccount() {
       location.reload();
     });
     $("auth-forms").classList.add("hidden");
-    const history = await api("/api/history");
-    $("history").innerHTML = history.readings.length
-      ? history.readings.map((item) => `<li><a href="${esc(item.sharePath)}">${esc(item.day || "")} ${esc(item.title)}</a></li>`).join("")
-      : "<li>还没有牌。</li>";
+    try {
+      const history = await api("/api/history");
+      const readings = Array.isArray(history?.readings) ? history.readings : [];
+      $("history").innerHTML = readings.length
+        ? readings.map((item) => `<li><a href="${esc(item.sharePath)}">${esc(item.day || "")} ${esc(item.title)}</a></li>`).join("")
+        : "<li>还没有牌。</li>";
+    } catch (error) {
+      $("history").innerHTML = `<li>${esc(friendlyError(error))}</li>`;
+    }
     const cal = $("calendar");
     if (cal) {
       try {
@@ -455,7 +601,7 @@ async function bootAccount() {
           ? data.days.map((item) => `<li>${esc(item.day.slice(5))} · ${esc(item.streak)} 连</li>`).join("")
           : "<li>这个月还没打卡。</li>";
       } catch (error) {
-        cal.innerHTML = `<li>${esc(error.message)}</li>`;
+        cal.innerHTML = `<li>${esc(friendlyError(error))}</li>`;
       }
     }
   }

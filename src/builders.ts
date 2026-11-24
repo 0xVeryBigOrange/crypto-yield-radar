@@ -383,7 +383,9 @@ export function buildZodiac(name: string, day: string): Reading | null {
   const animal = animalOf(name);
   if (!animal) return null;
   const year = yearAnimal(day);
-  const summary = `属${animal}。${animalLine(animal)}今年的值年是${year}，只用来调语气，不用来吓自己。`;
+  const line = animalLine(animal);
+  const spoken = /[。！？]$/.test(line) ? line : `${line}。`;
+  const summary = `属${animal}。${spoken}今年的值年是${year}，只用来调语气，不用来吓自己。`;
   return scoreReading({
     kind: "zodiac",
     day,
@@ -395,7 +397,7 @@ export function buildZodiac(name: string, day: string): Reading | null {
       { heading: "跟值年", text: animal === year ? "值年在自己身上，别人的话会变响。响的时候少答应。" : `${animal}遇到${year}年，保持自己的步速就好。` },
     ],
     sections: [
-      { heading: "做事", text: `${animalLine(animal)}工作上的用法是缩小范围，不是更换人格。` },
+      { heading: "做事", text: `${spoken}工作上的用法是缩小范围，不是更换人格。` },
       { heading: "相处", text: "生肖不是兼容性考试。跟谁都合得来或合不来，都比十二个动物更具体。" },
       { heading: "照顾", text: "属相不负责你的睡眠。睡眠负责你明天还想不想看这支签。" },
     ],
