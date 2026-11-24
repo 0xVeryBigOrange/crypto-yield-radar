@@ -2,7 +2,9 @@ name: daily
 
 on:
   schedule:
-    # 00:15 UTC every day. GitHub runs this in UTC.
+    # 00:15 UTC = 08:15 Asia/Singapore, and after the US cash close.
+    # The Singapore day itself flips at 00:00 on the first request.
+    # This run warms today's 橙签 and the next US session's 盘前橙签.
     - cron: "15 0 * * *"
   workflow_dispatch:
 
@@ -59,4 +61,4 @@ jobs:
             exit 1
           fi
           echo "Daily job finished."
-          python3 -c 'import json; d=json.load(open("/tmp/keymint-daily.json")); print({k:d.get(k) for k in ("ok","day","models","priceRefresh")})'
+          python3 -c 'import json; d=json.load(open("/tmp/keymint-daily.json")); print({k:d.get(k) for k in ("ok","day","usSession","models","priceRefresh","omen")})'

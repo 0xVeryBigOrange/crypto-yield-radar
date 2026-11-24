@@ -1,9 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { generateApiKey, hashApiKey, hashPassword, hashSession, newSessionToken, verifyPassword } from "./auth.js";
+import { randomBytes, randomUUID } from "node:crypto";
+import { hashPassword, hashSession, newSessionToken, normalizeEmail, verifyPassword } from "./auth.js";
 import type { Db } from "./db.js";
 import { formatUsd, parseDecimal } from "./money.js";
+import { sgDay } from "./time.js";
+import { nicknameFromEmail } from "./text.js";
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
 export interface SessionUser {
   id: string;
@@ -11,21 +14,46 @@ export interface SessionUser {
   balanceUsd: string;
   reservedUsd: string;
   createdAt: string;
+  nickname: string;
+  referralCode: string;
+  passUntil: string | null;
+  passActive: boolean;
+  checkinStreak: number;
+  lastCheckin: string | null;
+  checkedInToday: boolean;
 }
 
-export async function createUser(pool: Db, email: string, password: string): Promise<SessionUser> {
-  const id = randomUUID();
-  await pool.query(
-    `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
-    [id, email, await hashPassword(password)],
-  );
-  return {
-    id,
-    email,
-    balanceUsd: formatUsd(0n),
-    reservedUsd: formatUsd(0n),
-    createdAt: new Date().toISOString(),
-  };
+export interface PublicProfile {
+  id: string;
+  nickname: string;
+}
+
+export async function createUser(
+  pool: Db,
+  email: string,
+  password: string,
+  nickname: string,
+  referralCode: string | null,
+): Promise<SessionUser> {
+  const referred = referralCode ? await profileByCode(pool, referralCode) : null;
+  const passwordHash = await hashPassword(password);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const id = randomUUID();
+    try {
+      await pool.query(
+        `INSERT INTO users (id, email, password_hash, nickname, referral_code, referred_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, email, passwordHash, nickname, newReferralCode(), referred?.id ?? null],
+      );
+      const user = await getUser(pool, id);
+      if (!user) throw new Error("user missing");
+      return user;
+    } catch (err) {
+      const constraint = pgConstraint(err);
+      if (constraint == null || !constraint.includes("referral")) throw err;
+    }
+  }
+  throw new Error("could not allocate a referral code");
 }
 
 export async function authenticate(pool: Db, email: string, password: string): Promise<SessionUser | null> {
@@ -47,16 +75,68 @@ export async function getUser(pool: Db, id: string): Promise<SessionUser | null>
     balance_usd: string;
     reserved_usd: string;
     created_at: Date;
-  }>(`SELECT id, email, balance_usd::text, reserved_usd::text, created_at FROM users WHERE id = $1`, [id]);
+    nickname: string | null;
+    referral_code: string | null;
+    pass_until: Date | null;
+    checkin_streak: number;
+    last_checkin: string | null;
+  }>(
+    `SELECT id, email, balance_usd::text, reserved_usd::text, created_at, nickname, referral_code,
+            pass_until, checkin_streak, last_checkin::text
+     FROM users WHERE id = $1`,
+    [id],
+  );
   const row = result.rows[0];
   if (!row) return null;
+  let nickname = row.nickname;
+  let referralCode = row.referral_code;
+  if (!nickname || !referralCode) {
+    nickname = nickname || nicknameFromEmail(row.email);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const candidate = referralCode || newReferralCode();
+      try {
+        await pool.query(
+          `UPDATE users SET nickname = COALESCE(nickname, $2), referral_code = COALESCE(referral_code, $3) WHERE id = $1`,
+          [id, nickname, candidate],
+        );
+        referralCode = candidate;
+        break;
+      } catch (err) {
+        const constraint = pgConstraint(err);
+        if (!constraint?.includes("referral") || attempt === 2) throw err;
+      }
+    }
+    if (!referralCode) throw new Error("referral code missing");
+  }
+  const today = sgDay();
   return {
     id: row.id,
     email: row.email,
     balanceUsd: formatUsd(parseDecimal(row.balance_usd)),
     reservedUsd: formatUsd(parseDecimal(row.reserved_usd)),
     createdAt: row.created_at.toISOString(),
+    nickname,
+    referralCode,
+    passUntil: row.pass_until ? row.pass_until.toISOString() : null,
+    passActive: row.pass_until != null && row.pass_until.getTime() > Date.now(),
+    checkinStreak: row.checkin_streak ?? 0,
+    lastCheckin: row.last_checkin,
+    checkedInToday: row.last_checkin === today,
   };
+}
+
+export async function updateNickname(pool: Db, userId: string, nickname: string): Promise<void> {
+  await pool.query(`UPDATE users SET nickname = $2 WHERE id = $1`, [userId, nickname]);
+}
+
+export async function profileByCode(pool: Db, code: string): Promise<PublicProfile | null> {
+  const result = await pool.query<{ id: string; nickname: string | null }>(
+    `SELECT id, nickname FROM users WHERE referral_code = $1`,
+    [code.trim().toLowerCase()],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { id: row.id, nickname: row.nickname || "橙友" };
 }
 
 export async function openSession(pool: Db, userId: string, secret: string): Promise<string> {
@@ -84,67 +164,27 @@ export async function closeSession(pool: Db, token: string | undefined, secret: 
   await pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [hashSession(token, secret)]);
 }
 
-export async function createKey(pool: Db, userId: string, name: string, rpm: number) {
-  const key = generateApiKey();
-  const id = randomUUID();
-  await pool.query(
-    `INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, key_last4, rpm_limit)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, userId, name, key.hash, key.prefix, key.last4, rpm],
-  );
-  return { id, name, token: key.token, prefix: key.prefix, last4: key.last4, rpmLimit: rpm };
+export function newReferralCode(): string {
+  const bytes = randomBytes(8);
+  let out = "";
+  for (const byte of bytes) out += CODE_ALPHABET[byte % CODE_ALPHABET.length];
+  return out;
 }
 
-export async function listKeys(pool: Db, userId: string) {
-  const result = await pool.query<{
-    id: string;
-    name: string;
-    key_prefix: string;
-    key_last4: string;
-    rpm_limit: number;
-    revoked_at: Date | null;
-    last_used_at: Date | null;
-    created_at: Date;
-  }>(
-    `SELECT id, name, key_prefix, key_last4, rpm_limit, revoked_at, last_used_at, created_at
-     FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
-    [userId],
-  );
-  return result.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    prefix: row.key_prefix,
-    last4: row.key_last4,
-    rpmLimit: row.rpm_limit,
-    revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
-    lastUsedAt: row.last_used_at ? row.last_used_at.toISOString() : null,
-    createdAt: row.created_at.toISOString(),
-  }));
-}
-
-export async function revokeKey(pool: Db, userId: string, keyId: string): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
-    [keyId, userId],
-  );
-  return (result.rowCount ?? 0) > 0;
-}
-
-export interface ApiPrincipal {
-  userId: string;
-  keyId: string;
-  rpm: number;
-}
-
-export async function principalFromApiKey(pool: Db, token: string): Promise<ApiPrincipal | null> {
-  const result = await pool.query<{ id: string; user_id: string; rpm_limit: number }>(
-    `SELECT id, user_id, rpm_limit FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`,
-    [hashApiKey(token)],
-  );
-  const row = result.rows[0];
-  if (!row) return null;
-  await pool.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [row.id]);
-  return { userId: row.user_id, keyId: row.id, rpm: row.rpm_limit };
+export function publicUser(user: SessionUser) {
+  return {
+    email: user.email,
+    nickname: user.nickname,
+    balanceUsd: user.balanceUsd,
+    reservedUsd: user.reservedUsd,
+    createdAt: user.createdAt,
+    referralCode: user.referralCode,
+    passUntil: user.passUntil,
+    passActive: user.passActive,
+    checkinStreak: user.checkinStreak,
+    lastCheckin: user.lastCheckin,
+    checkedInToday: user.checkedInToday,
+  };
 }
 
 let dummy: Promise<string> | null = null;
@@ -152,3 +192,12 @@ function dummyHash(): Promise<string> {
   dummy ??= hashPassword("not-a-real-password");
   return dummy;
 }
+
+function pgConstraint(err: unknown): string | null {
+  if (typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505") {
+    return String((err as { constraint?: string }).constraint ?? "");
+  }
+  return null;
+}
+
+export { normalizeEmail };

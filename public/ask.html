@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>塔罗提问 — 橙签</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="ask">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">塔罗提问</p>
+    <h1>问心情，别问点位</h1>
+    <p class="lede">每天一次免费短抽。三张牌的完整摊开是 1 USDT。交易相关的问题会被扭回节奏，牌不写买卖。</p>
+    <form id="ask-form" class="stack">
+      <label><span>你的问题</span><textarea name="question" maxlength="200" required placeholder="例如：这周盯盘我为什么这么烦"></textarea></label>
+      <label class="ack"><input name="ack" type="checkbox"> 我已知晓：虚拟服务一经交付不予退款。仅供娱乐，不构成投资、法律、医疗或心理建议。</label>
+      <div class="btn-row">
+        <button class="btn-ghost" type="submit" data-tier="free">免费短抽</button>
+        <button class="btn" type="submit" data-tier="full">三张牌 · 1 USDT</button>
+      </div>
+      <p class="msg" id="ask-msg"></p>
+    </form>
+    <div id="ask-result"></div>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
+  </main>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/">今日</a>
+    <a href="/wallet">命盘</a>
+    <a href="/ask" aria-current="page">提问</a>
+    <a href="/yuan">币缘</a>
+    <a href="/hepan">合盘</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
+</body>
+</html>

@@ -2,29 +2,25 @@ import type { Express } from "express";
 import { safeEqual } from "../auth.js";
 import type { Config } from "../config.js";
 import type { Db } from "../db.js";
+import { runDailyJob } from "../dailyJob.js";
 import { allowAttempt, asyncRoute, sendApiError } from "../http.js";
 import { adjustBalance } from "../ledger.js";
-import { parseDecimal, formatUsd } from "../money.js";
-import { refreshPrices } from "../pricing.js";
-import { utcDay, writeDailySummary } from "../summary.js";
-import type { UpstreamProvider } from "../upstream.js";
+import type { Llm } from "../llm.js";
+import { formatUsd, parseDecimal } from "../money.js";
 
-export function registerAdminRoutes(
-  app: Express,
-  deps: { config: Config; pool: Db; provider: UpstreamProvider | null },
-): void {
+export function registerAdminRoutes(app: Express, deps: { config: Config; pool: Db; llm: Llm | null }): void {
   app.use("/api/admin", (req, res, next) => {
     if (!deps.config.adminToken) {
-      sendApiError(res, 503, "admin_disabled", "Set ADMIN_TOKEN to enable the admin API.");
+      sendApiError(res, 503, "admin_disabled", "要先设置 ADMIN_TOKEN，管理接口才开门。");
       return;
     }
     const header = req.header("x-admin-token") ?? "";
     if (!header || !safeEqual(header, deps.config.adminToken)) {
       if (!allowAttempt(`admin:${req.ip}`, 8, 10 * 60 * 1000)) {
-        sendApiError(res, 429, "rate_limited", "Too many admin attempts.");
+        sendApiError(res, 429, "rate_limited", "管理令牌试得太多了。");
         return;
       }
-      sendApiError(res, 401, "unauthorized", "Admin token rejected.");
+      sendApiError(res, 401, "unauthorized", "管理令牌不对。");
       return;
     }
     next();
@@ -35,15 +31,15 @@ export function registerAdminRoutes(
       users: string;
       deposits: string;
       charged: string;
-      upstream: string;
-      revenue: string;
+      passes: string;
+      readings: string;
     }>(
       `SELECT
          (SELECT COUNT(*) FROM users)::text AS users,
          (SELECT COALESCE(SUM(amount_usd), 0) FROM deposits)::text AS deposits,
-         (SELECT COALESCE(SUM(charged_usd), 0) FROM usage_logs WHERE status IN ('settled', 'settled_short'))::text AS charged,
-         (SELECT COALESCE(SUM(upstream_cost_usd), 0) FROM usage_logs WHERE status IN ('settled', 'settled_short'))::text AS upstream,
-         (SELECT COALESCE(SUM(charged_usd - upstream_cost_usd), 0) FROM usage_logs WHERE status IN ('settled', 'settled_short'))::text AS revenue`,
+         (SELECT COALESCE(SUM(amount_usd), 0) FROM charges)::text AS charged,
+         (SELECT COUNT(*) FROM users WHERE pass_until > now())::text AS passes,
+         (SELECT COUNT(*) FROM reading_cache)::text AS readings`,
     );
     const row = totals.rows[0];
     const adjustments = await deps.pool.query<{
@@ -61,8 +57,8 @@ export function registerAdminRoutes(
       users: Number(row?.users ?? 0),
       depositsUsd: money(row?.deposits),
       chargedUsd: money(row?.charged),
-      upstreamUsd: money(row?.upstream),
-      markupRevenueUsd: money(row?.revenue),
+      passes: Number(row?.passes ?? 0),
+      readings: Number(row?.readings ?? 0),
       adjustments: adjustments.rows.map((item) => ({
         id: item.id,
         email: item.email,
@@ -77,19 +73,23 @@ export function registerAdminRoutes(
     const rows = await deps.pool.query<{
       id: string;
       email: string;
+      nickname: string | null;
       balance_usd: string;
-      reserved_usd: string;
+      pass_until: Date | null;
+      referral_code: string | null;
       created_at: Date;
     }>(
-      `SELECT id, email, balance_usd::text, reserved_usd::text, created_at
+      `SELECT id, email, nickname, balance_usd::text, pass_until, referral_code, created_at
        FROM users ORDER BY created_at DESC LIMIT 500`,
     );
     res.json({
       users: rows.rows.map((row) => ({
         id: row.id,
         email: row.email,
+        nickname: row.nickname,
         balanceUsd: formatUsd(parseDecimal(row.balance_usd)),
-        reservedUsd: formatUsd(parseDecimal(row.reserved_usd)),
+        passUntil: row.pass_until ? row.pass_until.toISOString() : null,
+        referralCode: row.referral_code,
         createdAt: row.created_at.toISOString(),
       })),
     });
@@ -126,22 +126,17 @@ export function registerAdminRoutes(
 
   app.get("/api/admin/summaries", asyncRoute(async (_req, res) => {
     const rows = await deps.pool.query(
-      `SELECT day::text, request_count, prompt_tokens::text, completion_tokens::text,
-              upstream_cost_usd::text, charged_usd::text, markup_revenue_usd::text,
+      `SELECT day::text, request_count, charged_usd::text, markup_revenue_usd::text,
               deposit_usd::text, model_count, created_at
        FROM daily_summaries ORDER BY day DESC LIMIT 90`,
     );
     res.json({
       summaries: rows.rows.map((row) => ({
         day: row.day,
-        requestCount: row.request_count,
-        promptTokens: row.prompt_tokens,
-        completionTokens: row.completion_tokens,
-        upstreamUsd: formatUsd(parseDecimal(row.upstream_cost_usd)),
+        readingCount: row.request_count,
         chargedUsd: formatUsd(parseDecimal(row.charged_usd)),
-        markupRevenueUsd: formatUsd(parseDecimal(row.markup_revenue_usd)),
         depositUsd: formatUsd(parseDecimal(row.deposit_usd)),
-        modelCount: row.model_count,
+        llmCount: row.model_count,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       })),
     });
@@ -151,38 +146,32 @@ export function registerAdminRoutes(
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
     if (!email || reason.length < 3 || reason.length > 200) {
-      sendApiError(res, 400, "bad_adjustment", "Email and a reason of 3 to 200 characters are required.");
+      sendApiError(res, 400, "bad_adjustment", "需要邮箱，以及 3 到 200 字的原因。");
       return;
     }
     let delta: bigint;
     try {
       delta = parseDecimal(String(req.body?.deltaUsd ?? ""));
     } catch {
-      sendApiError(res, 400, "bad_amount", "deltaUsd must be a decimal USD amount.");
+      sendApiError(res, 400, "bad_amount", "金额要写成数字。");
       return;
     }
     if (delta === 0n) {
-      sendApiError(res, 400, "bad_amount", "deltaUsd cannot be zero.");
+      sendApiError(res, 400, "bad_amount", "金额不能是 0。");
       return;
     }
     const result = await adjustBalance(deps.pool, { email, delta, reason });
     if (!result.ok) {
       const status = result.code === "not_found" ? 404 : 400;
-      sendApiError(res, status, result.code, result.code === "not_found" ? "User not found." : "Balance cannot go below zero.");
+      sendApiError(res, status, result.code, result.code === "not_found" ? "没有这个用户。" : "余额不能扣成负数。");
       return;
     }
     res.json({ email, balanceUsd: result.balance });
   }));
 
   app.post("/api/admin/refresh", asyncRoute(async (_req, res) => {
-    if (!deps.provider) {
-      sendApiError(res, 503, "upstream_unconfigured", "UPSTREAM_API_KEY is not set.");
-      return;
-    }
-    const models = await refreshPrices(deps.pool, deps.provider);
-    await writeDailySummary(deps.pool, utcDay(0));
-    await writeDailySummary(deps.pool, utcDay(-1));
-    res.json({ models, summarized: [utcDay(0), utcDay(-1)] });
+    const result = await runDailyJob(deps.pool, deps.llm);
+    res.json(result);
   }));
 }
 

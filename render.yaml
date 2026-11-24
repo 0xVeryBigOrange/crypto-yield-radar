@@ -1,6 +1,7 @@
-# Keymint on Render's free tier: one web service and one Postgres database.
-# The daily job is a GitHub Actions workflow that POSTs /internal/daily.
-# Apply in the Render Dashboard with a Blueprint. Set UPSTREAM_API_KEY when prompted.
+# 橙签 / OrangeOmens on Render's free tier.
+# The Blueprint service name stays `keymint` and the database stays `keymint-db`
+# so syncing updates the existing service (public URL https://keymint-1106.onrender.com)
+# instead of creating a second one. The daily job is GitHub Actions POSTing /internal/daily.
 # Free Postgres expires about 30 days after creation.
 version: "1"
 
@@ -13,6 +14,13 @@ envVarGroups:
         value: openrouter
       - key: UPSTREAM_BASE_URL
         value: https://openrouter.ai/api/v1
+      - key: LLM_MODEL
+        value: openai/gpt-4o-mini
+      - key: APP_PUBLIC_URL
+        value: https://keymint-1106.onrender.com
+      - key: APP_NAME
+        value: 橙签
+      # Kept so an existing Blueprint sync does not drop values. The app no longer reads them.
       - key: MARKUP
         value: "1.3"
       - key: MIN_DEPOSIT_USD
@@ -31,8 +39,6 @@ envVarGroups:
         value: https://ethereum.publicnode.com
       - key: BSC_RPC_URL
         value: https://bsc.publicnode.com
-      - key: APP_NAME
-        value: Keymint
 
 databases:
   - name: keymint-db

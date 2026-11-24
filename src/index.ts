@@ -2,38 +2,26 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createPool, migrate } from "./db.js";
 import { loadEnvFile } from "./env.js";
+import { createLlm } from "./llm.js";
 import { log } from "./log.js";
-import { refreshPrices } from "./pricing.js";
-import { createProvider } from "./upstream.js";
+import { ensureOmen } from "./product.js";
+import { sgDay, usSessionDate } from "./time.js";
 
 loadEnvFile();
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
-// Migrations finish before the port opens, so Render's /healthz check sees a ready schema.
-// schema.sql is idempotent; a free-tier cold start runs it again on every wake.
 await migrate(pool);
 
-const provider = config.upstreamApiKey
-  ? createProvider({
-      provider: config.upstreamProvider,
-      baseUrl: config.upstreamBaseUrl,
-      apiKey: config.upstreamApiKey,
-      appPublicUrl: config.appPublicUrl,
-      appName: config.appName,
-    })
-  : null;
-
-if (!provider) {
-  log("warn", "UPSTREAM_API_KEY is not set; chat completions are disabled until it is");
+const llm = config.upstreamApiKey ? createLlm(config) : null;
+if (!llm) {
+  log("warn", "UPSTREAM_API_KEY is not set; readings use the template bank");
 } else {
-  refreshPrices(pool, provider)
-    .then((models) => log("info", "startup price refresh", { models }))
-    .catch((err: unknown) =>
-      log("error", "startup price refresh failed", { name: err instanceof Error ? err.name : "error" }),
-    );
+  void ensureOmen(pool, llm, "sg", sgDay())
+    .then(() => ensureOmen(pool, llm, "us", usSessionDate()))
+    .catch((err: unknown) => log("error", "startup omen failed", { name: err instanceof Error ? err.name : "error" }));
 }
 
-const app = buildApp({ config, pool, provider });
+const app = buildApp({ config, pool, llm });
 const server = app.listen(config.port, config.host, () => {
   log("info", "listening", { host: config.host, port: config.port });
 });

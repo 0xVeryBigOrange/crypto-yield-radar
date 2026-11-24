@@ -31,7 +31,8 @@ services:
       UPSTREAM_PROVIDER: openrouter
       UPSTREAM_BASE_URL: https://openrouter.ai/api/v1
       APP_PUBLIC_URL: http://localhost:3000
-      APP_NAME: Keymint
+      APP_NAME: 橙签
+      LLM_MODEL: openai/gpt-4o-mini
       MARKUP: "1.3"
       MIN_DEPOSIT_USD: "5"
       PORT: "3000"

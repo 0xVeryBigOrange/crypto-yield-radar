@@ -1,113 +1,110 @@
-const TOKEN_KEY = "keymint.admin";
+const tokenBox = document.querySelector("#admin-token");
+const gate = document.querySelector("#gate");
+const panel = document.querySelector("#panel");
 
-function token() {
-  return sessionStorage.getItem(TOKEN_KEY) || "";
+function authHeaders() {
+  return { "content-type": "application/json", "x-admin-token": sessionStorage.getItem("oo_admin") || "" };
 }
-async function admin(path, options = {}) {
+
+async function admin(path, body) {
   const response = await fetch(path, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      "x-admin-token": token(),
-      ...(options.headers || {}),
-    },
+    method: body ? "POST" : "GET",
+    headers: authHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
   });
-  const text = await response.text();
-  return { response, body: text ? JSON.parse(text) : null };
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || "请求失败");
+  return data;
 }
+
 function cell(value) {
   const td = document.createElement("td");
-  td.textContent = value;
+  td.textContent = value ?? "";
   return td;
-}
-function fill(id, rows, map) {
-  const body = document.getElementById(id);
-  body.replaceChildren();
-  for (const row of rows) body.append(map(row));
 }
 
 async function load() {
   const overview = await admin("/api/admin/overview");
-  if (!overview.response.ok) {
-    sessionStorage.removeItem(TOKEN_KEY);
-    document.getElementById("gate").classList.remove("hidden");
-    document.getElementById("panel").classList.add("hidden");
-    document.getElementById("gate-msg").textContent = overview.body?.error?.message || "";
-    return;
-  }
-  document.getElementById("gate").classList.add("hidden");
-  document.getElementById("panel").classList.remove("hidden");
-  const stats = document.getElementById("stats");
-  stats.replaceChildren();
-  const lang = window.KeymintI18n.get();
-  const labels = lang === "en"
-    ? ["Users", "Deposits", "Charged", "Upstream", "Markup revenue"]
-    : ["用户", "充值", "扣费", "上游成本", "加价收入"];
-  const values = [
-    String(overview.body.users),
-    `$${overview.body.depositsUsd}`,
-    `$${overview.body.chargedUsd}`,
-    `$${overview.body.upstreamUsd}`,
-    `$${overview.body.markupRevenueUsd}`,
-  ];
-  labels.forEach((label, index) => {
-    const card = document.createElement("article");
-    card.className = "card stat";
-    const name = document.createElement("span");
-    name.className = "muted";
-    name.textContent = label;
-    const strong = document.createElement("strong");
-    strong.textContent = values[index];
-    card.append(name, strong);
-    stats.append(card);
-  });
-
+  document.querySelector("#stats").innerHTML = [
+    ["用户", overview.users],
+    ["充值", overview.depositsUsd],
+    ["消费", overview.chargedUsd],
+    ["月卡", overview.passes],
+  ]
+    .map(([label, value]) => `<article class="feature"><strong>${label}</strong><span>${value}</span></article>`)
+    .join("");
   const users = await admin("/api/admin/users");
-  fill("user-body", users.body.users, (row) => {
+  const userBody = document.querySelector("#user-body");
+  userBody.replaceChildren();
+  for (const user of users.users) {
     const tr = document.createElement("tr");
-    tr.append(cell(row.email), cell(`$${row.balanceUsd}`), cell(`$${row.reservedUsd}`));
-    return tr;
-  });
+    tr.append(cell(user.nickname), cell(user.email), cell(user.balanceUsd), cell(user.passUntil ? "开" : ""));
+    userBody.append(tr);
+  }
   const deposits = await admin("/api/admin/deposits");
-  fill("deposit-body", deposits.body.deposits, (row) => {
+  const depositBody = document.querySelector("#deposit-body");
+  depositBody.replaceChildren();
+  for (const row of deposits.deposits) {
     const tr = document.createElement("tr");
-    tr.append(cell(row.email), cell(row.chain), cell(`$${row.amountUsd}`), cell(row.txHash));
-    return tr;
-  });
+    tr.append(cell(row.email), cell(row.chain), cell(row.amountUsd), cell(row.txHash));
+    depositBody.append(tr);
+  }
   const summaries = await admin("/api/admin/summaries");
-  fill("summary-body", summaries.body.summaries, (row) => {
+  const summaryBody = document.querySelector("#summary-body");
+  summaryBody.replaceChildren();
+  for (const row of summaries.summaries) {
     const tr = document.createElement("tr");
-    tr.append(cell(row.day), cell(String(row.requestCount)), cell(`$${row.chargedUsd}`), cell(`$${row.markupRevenueUsd}`), cell(`$${row.depositUsd}`));
-    return tr;
-  });
+    tr.append(cell(row.day), cell(String(row.readingCount)), cell(row.chargedUsd), cell(row.depositUsd));
+    summaryBody.append(tr);
+  }
 }
 
-document.getElementById("gate-form").addEventListener("submit", async (event) => {
+document.querySelector("#gate-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  sessionStorage.setItem(TOKEN_KEY, document.getElementById("admin-token").value.trim());
-  await load();
+  sessionStorage.setItem("oo_admin", tokenBox.value.trim());
+  try {
+    await load();
+    gate.classList.add("hidden");
+    panel.classList.remove("hidden");
+  } catch (error) {
+    document.querySelector("#gate-msg").textContent = error.message;
+  }
 });
 
-document.getElementById("adjust-form").addEventListener("submit", async (event) => {
+document.querySelector("#adjust-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.target));
-  const { response, body } = await admin("/api/admin/adjustments", { method: "POST", body: JSON.stringify(data) });
-  const msg = document.getElementById("adjust-msg");
-  msg.className = response.ok ? "msg ok" : "msg error";
-  msg.textContent = response.ok ? `$${body.balanceUsd}` : body.error?.message || "";
-  if (response.ok) await load();
+  const form = new FormData(event.target);
+  const msg = document.querySelector("#adjust-msg");
+  try {
+    const result = await admin("/api/admin/adjustments", {
+      email: form.get("email"),
+      deltaUsd: form.get("deltaUsd"),
+      reason: form.get("reason"),
+    });
+    msg.textContent = `余额 ${result.balanceUsd}`;
+    await load();
+  } catch (error) {
+    msg.textContent = error.message;
+  }
 });
 
-document.getElementById("refresh").addEventListener("click", async () => {
-  const { response, body } = await admin("/api/admin/refresh", { method: "POST", body: "{}" });
-  const msg = document.getElementById("refresh-msg");
-  msg.className = response.ok ? "msg ok" : "msg error";
-  msg.textContent = response.ok ? String(body.models) : body.error?.message || "";
-  if (response.ok) await load();
+document.querySelector("#refresh").addEventListener("click", async () => {
+  const msg = document.querySelector("#refresh-msg");
+  try {
+    const result = await admin("/api/admin/refresh", {});
+    msg.textContent = `橙签 ${result.omen} · ${result.day}`;
+    await load();
+  } catch (error) {
+    msg.textContent = error.message;
+  }
 });
 
-document.addEventListener("keymint:lang", () => {
-  if (token()) load();
-});
-
-if (token()) load();
+if (sessionStorage.getItem("oo_admin")) {
+  tokenBox.value = sessionStorage.getItem("oo_admin");
+  load()
+    .then(() => {
+      gate.classList.add("hidden");
+      panel.classList.remove("hidden");
+    })
+    .catch(() => {});
+}

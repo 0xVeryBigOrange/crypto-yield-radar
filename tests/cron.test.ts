@@ -49,13 +49,22 @@ describe("POST /internal/daily", () => {
       headers: { "x-cron-secret": "correct-secret" },
     });
     expect(ok.status).toBe(200);
-    const body = (await ok.json()) as { ok: boolean; day: string; models: number | null; priceRefresh: string };
+    const body = (await ok.json()) as {
+      ok: boolean;
+      day: string;
+      usSession: string;
+      models: number | null;
+      priceRefresh: string;
+      omen: string;
+    };
     expect(body.ok).toBe(true);
     expect(body.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.usSession).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(body.models).toBeNull();
     expect(body.priceRefresh).toBe("skipped");
+    expect(body.omen).toBe("ready");
+    expect(queries.some((sql) => sql.includes("reading_cache"))).toBe(true);
     expect(queries.some((sql) => sql.includes("daily_summaries"))).toBe(true);
-    expect(queries.some((sql) => sql.includes("rate_buckets"))).toBe(true);
 
     const get = await fetch(`${base}/internal/daily`);
     expect(get.status).toBe(404);
@@ -74,10 +83,24 @@ function configFor(extra: Record<string, string>): Config {
 
 function stubPool(): Db & { queries: string[] } {
   const queries: string[] = [];
+  const row = {
+    cache_key: "omen:sg:2026-01-01",
+    kind: "omen",
+    day: "2026-01-01",
+    title: "今日橙签",
+    summary: "一句损话",
+    payload: {},
+    source: "template",
+    slug: "omen-sg-2026-01-01",
+    full_slug: "f_testslug",
+  };
   const pool = {
     queries,
     query: async (sql: string) => {
       queries.push(sql);
+      if (sql.includes("FROM reading_cache") && sql.includes("cache_key =")) {
+        return { rows: [row], rowCount: 1 };
+      }
       return { rows: [], rowCount: 0 };
     },
   };
@@ -85,7 +108,7 @@ function stubPool(): Db & { queries: string[] } {
 }
 
 async function start(config: Config, pool: Db & { queries: string[] }): Promise<{ base: string; queries: string[] }> {
-  const app = buildApp({ config, pool, provider: null });
+  const app = buildApp({ config, pool, llm: null });
   const server = await new Promise<Server>((resolve) => {
     const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
   });
