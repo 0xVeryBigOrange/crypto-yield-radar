@@ -106,7 +106,8 @@ describe("omen templates", () => {
 
   test("spend decisions do not let a pass purchase ride for free, and readings can", () => {
     const balance = parseDecimal("9.9");
-    expect(decideSpend({ balance, passActive: true, already: false, amount: parseDecimal("1"), coverWithPass: true }).via).toBe("pass");
+    expect(decideSpend({ balance, passActive: true, already: false, amount: parseDecimal("0.2"), coverWithPass: true, credits: 3 }).via).toBe("pass");
+    expect(decideSpend({ balance: 0n, passActive: false, already: false, amount: parseDecimal("0.2"), coverWithPass: true, credits: 2 }).via).toBe("credit");
     expect(decideSpend({ balance, passActive: true, already: false, amount: parseDecimal("9.9"), coverWithPass: false }).via).toBe("balance");
     expect(decideSpend({ balance: parseDecimal("1"), passActive: false, already: false, amount: parseDecimal("2"), coverWithPass: true }).via).toBe("insufficient");
     expect(decideSpend({ balance, passActive: false, already: true, amount: parseDecimal("1"), coverWithPass: true }).via).toBe("replay");

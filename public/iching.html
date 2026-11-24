@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>易经 — 橙签</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="iching">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">三枚铜钱 · 六次</p>
+    <h1>摇卦</h1>
+    <p class="lede">字作 3，背作 2。三字为 9，三背为 6，都是动爻。卦辞用《周易》原文，白话是橙签自己的。深度解读 30 橙币。</p>
+    <div class="coins" id="coins"></div>
+    <div class="lines" id="yao-list"></div>
+    <div class="btn-row">
+      <button class="btn" type="button" id="toss">摇一次</button>
+      <button class="btn-ghost" type="button" id="auto-iching">交给签筒</button>
+    </div>
+    <div id="result"></div>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
+  </main>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/">今日</a>
+    <a href="/play" aria-current="page">玩法</a>
+    <a href="/collection">图鉴</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
+  <script src="/plays.js"></script>
+</body>
+</html>

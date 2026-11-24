@@ -179,3 +179,25 @@ CREATE TABLE IF NOT EXISTS wallet_birthdays (
   source TEXT NOT NULL,
   fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Existing balances stay in balance_usd. New accounts start at 0 coins;
+-- the app grants welcome deep-reading credits on insert, not via this default,
+-- so rows that already exist are not handed a retroactive gift.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deep_credits INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS collection_items (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, kind, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS reward_grants (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ref TEXT NOT NULL,
+  credits INTEGER NOT NULL DEFAULT 0,
+  amount_usd NUMERIC(30, 12) NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, ref)
+);

@@ -1,7 +1,7 @@
 const DISCLAIMER = "仅供娱乐，不构成投资、法律、医疗或心理建议";
 
 const params = new URLSearchParams(location.search);
-const invite = params.get("with");
+const invite = params.get("with") || params.get("ref");
 if (invite) sessionStorage.setItem("oo_ref", invite.replace(/[^a-zA-Z0-9]/g, "").slice(0, 16));
 
 function esc(value) {
@@ -49,7 +49,7 @@ function moodClass(mood) {
 
 function asReading(payload) {
   if (payload && typeof payload === "object" && payload.reading) {
-    if (payload.balanceUsd) setBalance(payload.balanceUsd);
+    if (payload.orangeCoins) setBalance(payload.orangeCoins);
     return payload.reading;
   }
   return payload;
@@ -57,14 +57,14 @@ function asReading(payload) {
 
 function setBalance(value) {
   document.querySelectorAll("[data-balance]").forEach((node) => {
-    node.textContent = value ? `${value} USDT` : "";
+    node.textContent = value ? `${value} 橙币` : "登录";
   });
 }
 
 async function refreshMe() {
   try {
     const me = await api("/api/me");
-    setBalance(me.balanceUsd);
+    setBalance(me.orangeCoins);
     document.querySelectorAll("[data-nick]").forEach((node) => {
       node.textContent = me.nickname;
     });
@@ -125,10 +125,19 @@ function extraLines(view) {
 }
 
 function cardHtml(view) {
-  const card = view.cards?.[0] ?? {};
+  const cards = (view.cards ?? [])
+    .map((card) => `<div class="mini-card"><strong>${esc(card.name || "")}</strong><span>${esc(card.epithet || "")}</span></div>`)
+    .join("");
+  const basics = (view.basics ?? [])
+    .filter((section) => section?.text && section.text !== view.summary)
+    .map((section) => `<section class="block"><h3>${esc(section.heading)}</h3><p>${esc(section.text)}</p></section>`)
+    .join("");
   const sections = (view.sections ?? [])
     .map((section) => `<section class="block"><h3>${esc(section.heading)}</h3><p>${esc(section.text)}</p></section>`)
     .join("");
+  const veil = view.locked && view.deepPreview
+    ? `<div class="veil" aria-hidden="true"><p>${esc(view.deepPreview)}</p></div><p class="fine">深度解读只露出这一两句。免费部分在上面，已经可以说完。</p>`
+    : "";
   const score =
     view.score != null
       ? `<p class="score"><span>${esc(view.scoreLabel || "分数")}</span><strong>${esc(view.score)}</strong></p>`
@@ -142,8 +151,7 @@ function cardHtml(view) {
     <p class="stamp">仅供娱乐</p>
     <h2>${esc(title.headline)}</h2>
     ${title.sub ? `<p class="fine">${esc(title.sub)}</p>` : ""}
-    <p class="card-name">${esc(card.name || "")}</p>
-    <p class="epithet">${esc(card.epithet || "")}</p>
+    <div class="mini-row">${cards}</div>
     <p class="mood mood-${moodClass(view.mood)}">${esc(view.mood)}</p>
     <p class="fine">${esc(view.moodNote || "")}</p>
     ${view.subject ? `<p class="fine">${esc(view.subject)}</p>` : ""}
@@ -151,8 +159,10 @@ function cardHtml(view) {
     ${extraLines(view)}
     ${score}
     ${view.note ? `<p class="fine">${esc(view.note)}</p>` : ""}
+    ${basics}
+    ${veil}
     ${sections}
-    ${view.locked ? "" : `<p class="quote">「${esc(view.quote)}」</p>`}
+    ${view.quote ? `<p class="quote">「${esc(view.quote)}」</p>` : ""}
     ${view.imagePath ? `<img class="poster" src="${esc(view.imagePath)}" alt="运势K线分享卡">` : ""}
     ${candleSvg(candles)}
     <p class="disclaimer">${esc(view.disclaimer || DISCLAIMER)}</p>
@@ -167,23 +177,29 @@ function mountReading(host, payload, onPay) {
   const share = host.querySelector("[data-share]");
   if (share) {
     share.addEventListener("click", () => {
-      const url = new URL(view.sharePath, location.origin).toString();
+      const url = new URL(view.sharePath, location.origin);
+      const code = window.__me?.referralCode;
+      if (code) url.searchParams.set("ref", code);
+      const href = url.toString();
       const text = `${view.title} ${view.summary} ${view.disclaimer}`;
+      api("/api/share", {}).catch(() => {});
       if (navigator.share) {
-        navigator.share({ title: view.title, text, url }).catch(() => copy(url, share));
+        navigator.share({ title: view.title, text, url: href }).catch(() => copy(href, share));
       } else {
-        copy(url, share);
+        copy(href, share);
       }
     });
   }
-  if (view.locked && onPay) host.appendChild(payBox(view.priceUsd, onPay));
+  if (view.locked && onPay) host.appendChild(payBox(view, onPay));
 }
 
-function payBox(price, onPay) {
+function payBox(view, onPay) {
+  const price = view.priceCoins ? `${view.priceCoins} 橙币` : `${view.priceUsd || ""} USDT`;
   const box = document.createElement("form");
   box.className = "stack";
-  box.innerHTML = `<label class="ack"><input type="checkbox" required> 我已知晓：虚拟服务一经交付不予退款。${esc(DISCLAIMER)}。</label>
-    <button class="btn" type="submit">打开完整牌面 · ${esc(price)} USDT</button>
+  box.innerHTML = `<p class="fine">免费结果已经完整。深度解读是加长的一层，用赠送次数或橙币解锁。</p>
+    <label class="ack"><input type="checkbox" required> 我已知晓：虚拟服务一经交付不予退款。${esc(DISCLAIMER)}。</label>
+    <button class="btn" type="submit">解锁深度解读 · ${esc(price)}</button>
     <p class="msg"></p>`;
   box.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -222,6 +238,19 @@ async function renderHome() {
   const sg = $("omen-sg");
   const us = $("omen-us");
   const home = await api("/api/home");
+  const today = $("today");
+  if (today) {
+    const chips = (home.signs || [])
+      .map((item) => `<a class="chip" href="/astro?sign=${encodeURIComponent(item.sign)}">${esc(item.sign)} ${esc(item.score)}</a>`)
+      .join("");
+    const yi = home.almanac?.basics?.[0]?.text || "";
+    const ji = home.almanac?.basics?.[1]?.text || "";
+    today.innerHTML = `<a class="today-tile" href="#omen-sg"><span>交易员今日</span><strong>${esc(home.sg?.cards?.[0]?.name || "橙签")}</strong><p>${esc(home.sg?.summary || "")}</p></a>
+      <a class="today-tile" href="/tarot"><span>今日塔罗</span><strong>${esc(home.tarot?.cards?.[0]?.name || "一牌")}</strong><p>${esc(home.tarot?.summary || "")}</p></a>
+      <a class="today-tile" href="/stick"><span>今日一签</span><strong>${esc(home.stick?.title || "求签")}</strong><p>${esc(home.stick?.cards?.[0]?.epithet || "")}</p></a>
+      <a class="today-tile" href="/almanac"><span>黄历 · ${esc(home.yearAnimal || "")}年</span><strong>宜忌</strong><p>宜 ${esc(yi)}。忌 ${esc(ji)}。</p></a>
+      <div class="chip-row">${chips}</div>`;
+  }
   const draw = (host, view, edition) => {
     mountReading(host, view, async () => {
       const paid = await api("/api/omen/unlock", { edition, tier: "full", ack: true });
@@ -256,7 +285,7 @@ async function bootHome() {
       try {
         const result = await api("/api/checkin", { ack: true });
         msg.className = "msg";
-        msg.textContent = `${result.line} 欧气 ${result.score}，连续 ${result.streak} 天。`;
+        msg.textContent = `${result.line} 欧气 ${result.score}，连续 ${result.streak} 天。${result.coinsAwarded && result.coinsAwarded !== "0" ? ` +${result.coinsAwarded} 橙币。` : ""}`;
         await renderHome();
       } catch (error) {
         showError(msg, error);
@@ -330,8 +359,8 @@ async function bootHepan() {
   const inviteBox = $("invite");
   if (inviteBox) {
     if (code) {
-      const link = `${location.origin}/i/${code}`;
-      inviteBox.innerHTML = `<p>你的邀请链接</p><p class="addr">${esc(link)}</p><p class="fine">朋友打开就能合盘。没有返佣，只有一句可以转发的损话。</p>`;
+      const link = `${location.origin}/?ref=${code}`;
+      inviteBox.innerHTML = `<p>你的邀请链接</p><p class="addr">${esc(link)}</p><p class="fine">朋友注册得橙币。合盘仍然可以拿邀请码来。</p>`;
     } else {
       inviteBox.innerHTML = `<p class="fine"><a href="/account">登录</a>后拿到邀请链接。</p>`;
     }
@@ -393,13 +422,21 @@ async function bootAccount() {
   const config = await api("/api/public-config");
   $("deposit-address").textContent = config.depositAddress;
   $("min-deposit").textContent = config.minDepositUsd;
+  const hint = $("deposit-hint");
+  if (hint && config.depositHint) hint.textContent = config.depositHint;
+  const passPrice = $("pass-price");
+  if (passPrice) passPrice.textContent = `${config.prices?.monthPass || "2.99"} USDT（${config.priceCoins?.monthPass || "299"} 橙币）`;
   const me = window.__me;
   const session = $("session");
   if (me) {
+    const link = `${location.origin}/?ref=${encodeURIComponent(me.referralCode)}`;
     session.innerHTML = `<p>外号 <strong data-nick>${esc(me.nickname)}</strong></p>
-      <p>余额 <strong>${esc(me.balanceUsd)}</strong> USDT</p>
+      <p>橙币 <strong>${esc(me.orangeCoins)}</strong>（余额 ${esc(me.balanceUsd)} USDT，1 USDT = 100 橙币）</p>
+      <p>深度解读剩余 <strong>${esc(me.deepCredits)}</strong> 次。月卡期间不扣次数。</p>
       <p>${me.passActive ? `月卡开到 ${esc(me.passUntil)}` : "还没有月卡"}</p>
       <p>连续打卡 ${esc(me.checkinStreak)} 天</p>
+      <p>邀请链接</p><p class="addr">${esc(link)}</p>
+      <p class="fine">朋友从这条链接注册，你得 30 橙币，对方得 10 橙币，外加 3 次深度解读。</p>
       <button type="button" class="btn-ghost" id="logout">退出</button>`;
     $("logout").addEventListener("click", async () => {
       await api("/api/auth/logout", {});
@@ -408,8 +445,19 @@ async function bootAccount() {
     $("auth-forms").classList.add("hidden");
     const history = await api("/api/history");
     $("history").innerHTML = history.readings.length
-      ? history.readings.map((item) => `<li><a href="${esc(item.sharePath)}">${esc(item.title)}</a></li>`).join("")
+      ? history.readings.map((item) => `<li><a href="${esc(item.sharePath)}">${esc(item.day || "")} ${esc(item.title)}</a></li>`).join("")
       : "<li>还没有牌。</li>";
+    const cal = $("calendar");
+    if (cal) {
+      try {
+        const data = await api("/api/checkins");
+        cal.innerHTML = data.days.length
+          ? data.days.map((item) => `<li>${esc(item.day.slice(5))} · ${esc(item.streak)} 连</li>`).join("")
+          : "<li>这个月还没打卡。</li>";
+      } catch (error) {
+        cal.innerHTML = `<li>${esc(error.message)}</li>`;
+      }
+    }
   }
   $("login-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -460,8 +508,8 @@ async function bootAccount() {
         ack: true,
       });
       $("deposit-msg").className = "msg";
-      $("deposit-msg").textContent = `已入账 ${result.amountUsd}。余额 ${result.balanceUsd}。`;
-      setBalance(result.balanceUsd);
+      $("deposit-msg").textContent = `已入账 ${result.amountUsd} USDT，合 ${result.orangeCoins || ""} 橙币。`;
+      setBalance(result.orangeCoins || result.balanceUsd);
     } catch (error) {
       showError($("deposit-msg"), error);
     }
@@ -479,7 +527,7 @@ async function bootAccount() {
       sessionStorage.removeItem("oo_pass_key");
       $("pass-msg").className = "msg";
       $("pass-msg").textContent = result.via === "replay" ? "这笔月卡已经开过了。" : `月卡已开到 ${result.passUntil}。`;
-      setBalance(result.balanceUsd);
+      setBalance(result.orangeCoins || result.balanceUsd);
     } catch (error) {
       showError($("pass-msg"), error);
     }
@@ -487,7 +535,7 @@ async function bootAccount() {
 }
 
 const page = document.body.dataset.page;
-refreshMe().then(() => {
+window.__mePromise = refreshMe().then((me) => {
   if (page === "home") bootHome();
   if (page === "wallet") bootWallet();
   if (page === "ask") bootAsk();

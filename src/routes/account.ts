@@ -11,13 +11,15 @@ import {
 } from "../accounts.js";
 import { passwordOk, normalizeEmail } from "../auth.js";
 import { checkIn } from "../board.js";
-import { PRICE_USD, PRODUCT } from "../catalog.js";
+import { PRICE_USD, PRODUCT, WELCOME_DEEP_CREDITS } from "../catalog.js";
+import { formatCoins, formatUsd, parseDecimal } from "../money.js";
+import { collectionSnapshot, grantShare } from "../rewards.js";
+import { sgDay } from "../time.js";
 import type { Config } from "../config.js";
 import type { Db } from "../db.js";
 import { allowAttempt, asyncRoute, readCookie, sendApiError, sessionCookie } from "../http.js";
 import { log } from "../log.js";
 import { creditDeposit } from "../ledger.js";
-import { formatUsd, parseDecimal } from "../money.js";
 import { chainsPublic, createRpc, DEPOSIT_ADDRESS, verifyDeposit, type ChainId } from "../payments.js";
 import { assertAck, history, ProductError } from "../product.js";
 import { purchasePass } from "../spend.js";
@@ -39,6 +41,10 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
       chains: chainsPublic(),
       confirmations: { ethereum: deps.config.minConfEth, bsc: deps.config.minConfBsc },
       prices: PRICE_USD,
+      priceCoins: Object.fromEntries(Object.entries(PRICE_USD).map(([key, value]) => [key, formatCoins(parseDecimal(value))])),
+      coinPerUsd: 100,
+      welcomeCredits: WELCOME_DEEP_CREDITS,
+      depositHint: "最低 1 USDT，1 USDT = 100 橙币。推荐 BSC，以太坊主网 gas 较贵。只收 USDT / USDC。",
       disclaimer: DISCLAIMER,
       nonRefundable: NON_REFUNDABLE,
     });
@@ -229,6 +235,7 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
       amountUsd: formatUsd(verified.amountUsd),
       confirmations: verified.confirmations,
       balanceUsd: fresh?.balanceUsd ?? null,
+      orangeCoins: fresh?.orangeCoins ?? null,
       nonRefundable: NON_REFUNDABLE,
     });
   }));
@@ -277,7 +284,59 @@ export function registerAccountRoutes(app: Express, deps: AccountDeps): void {
       via: paid.via,
       passUntil: fresh?.passUntil ?? null,
       passActive: fresh?.passActive ?? false,
+      orangeCoins: fresh?.orangeCoins ?? null,
+      deepCredits: fresh?.deepCredits ?? null,
       nonRefundable: NON_REFUNDABLE,
+    });
+  }));
+
+  app.post("/api/share", asyncRoute(async (req, res) => {
+    const user = await currentUser(req, deps);
+    if (!user) {
+      sendApiError(res, 401, "unauthorized", "登录后分享才记橙币。");
+      return;
+    }
+    const granted = await grantShare(deps.pool, user.id, sgDay());
+    const fresh = await currentUser(req, deps);
+    res.json({
+      granted,
+      coinsAwarded: granted ? "5" : "0",
+      orangeCoins: fresh?.orangeCoins ?? user.orangeCoins,
+      deepCredits: fresh?.deepCredits ?? user.deepCredits,
+    });
+  }));
+
+  app.get("/api/collection", asyncRoute(async (req, res) => {
+    const user = await currentUser(req, deps);
+    if (!user) {
+      sendApiError(res, 401, "unauthorized", "登录后才能看见自己的图鉴。");
+      return;
+    }
+    res.json(await collectionSnapshot(deps.pool, user.id));
+  }));
+
+  app.get("/api/checkins", asyncRoute(async (req, res) => {
+    const user = await currentUser(req, deps);
+    if (!user) {
+      sendApiError(res, 401, "unauthorized", "登录后才能看见签到日历。");
+      return;
+    }
+    const month = typeof req.query.month === "string" && /^\d{4}-\d{2}$/.test(req.query.month) ? req.query.month : sgDay().slice(0, 7);
+    const [yearText, monthText] = month.split("-");
+    const year = Number(yearText);
+    const monthIndex = Number(monthText);
+    const start = `${month}-01`;
+    const end = new Date(Date.UTC(year, monthIndex, 1)).toISOString().slice(0, 10);
+    const rows = await deps.pool.query<{ day: string; score: number; streak: number }>(
+      `SELECT day::text, score, streak FROM checkins
+       WHERE user_id = $1 AND day >= $2::date AND day < $3::date
+       ORDER BY day`,
+      [user.id, start, end],
+    );
+    res.json({
+      month,
+      streak: user.checkinStreak,
+      days: rows.rows.map((row) => ({ day: row.day, score: row.score, streak: row.streak })),
     });
   }));
 

@@ -45,7 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!upstreamBaseUrl) throw new Error("UPSTREAM_BASE_URL is required");
   assertHttpUrl(upstreamBaseUrl, "UPSTREAM_BASE_URL");
 
-  const minDepositUsd = parseDecimal(env.MIN_DEPOSIT_USD?.trim() || "5");
+  const minDepositUsd = parseDecimal(env.MIN_DEPOSIT_USD?.trim() || "1");
   if (minDepositUsd < 0n) throw new Error("MIN_DEPOSIT_USD must be >= 0");
 
   const ethRpcUrl = env.ETH_RPC_URL?.trim() || "https://ethereum.publicnode.com";

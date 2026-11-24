@@ -63,14 +63,18 @@ export function registerReadRoutes(app: Express, deps: AppDeps): void {
   }));
 
   app.post("/api/ask", productRoute(async (req, res) => {
-    const user = await requireUser(req, deps);
+    const user = await currentUser(req, deps);
     const tier = tierOf(req.body?.tier);
-    if (tier === "full") assertAck(req.body);
-    if (!allowAttempt(`ask:${user.id}`, 30, 60 * 60 * 1000)) {
+    if (tier === "full") {
+      assertAck(req.body);
+      if (!user) throw new ProductError(401, "unauthorized", "登录后才能解锁深度解读。新用户送 3 次。");
+    }
+    const seed = user?.id ?? `guest:${req.ip ?? "local"}`;
+    if (!allowAttempt(`ask:${seed}`, 40, 60 * 60 * 1000)) {
       throw new ProductError(429, "rate_limited", "提问太密了，这个小时先看到这里。");
     }
     const question = typeof req.body?.question === "string" ? req.body.question : "";
-    res.json(await openTarot(deps.pool, deps.llm, user, question, tier));
+    res.json(await openTarot(deps.pool, deps.llm, user, question, tier, seed));
   }));
 
   app.post("/api/yuan", productRoute(async (req, res) => {
@@ -144,7 +148,7 @@ export function registerReadRoutes(app: Express, deps: AppDeps): void {
       res.status(404).type("text/plain").send("没有这张牌");
       return;
     }
-    const view = present(loaded.stored, loaded.access, loaded.access === "full" ? null : priceFor(loaded.stored.kind));
+    const view = present(loaded.stored, loaded.access, loaded.access === "full" ? null : priceFor(loaded.stored));
     if (wantsPng) {
       sendPoster(res, deps, view, layoutOf(req.query.layout, loaded.access));
       return;
@@ -191,12 +195,24 @@ function slugOf(value: unknown): string | null {
   return slug;
 }
 
-function priceFor(kind: string): string | null {
-  if (kind === "omen") return PRICE_USD.omenFull;
-  if (kind === "wallet") return PRICE_USD.walletFull;
-  if (kind === "tarot") return PRICE_USD.tarotFull;
-  if (kind === "ticker") return PRICE_USD.tickerFull;
-  if (kind === "compat") return PRICE_USD.compatFull;
+function priceFor(stored: { kind: string; payload: { extras?: { priceUsd?: string | number | null } } }): string | null {
+  const tagged = stored.payload.extras?.priceUsd;
+  if (typeof tagged === "string") return tagged;
+  const kind = stored.kind;
+  if (kind === "omen") return PRICE_USD.omenDeep;
+  if (kind === "wallet") return PRICE_USD.walletDeep;
+  if (kind === "tarot") return PRICE_USD.tarotDeep;
+  if (kind === "ticker") return PRICE_USD.tickerDeep;
+  if (kind === "compat") return PRICE_USD.compatDeep;
+  if (kind === "stick") return PRICE_USD.stickDeep;
+  if (kind === "iching") return PRICE_USD.ichingDeep;
+  if (kind === "astro") return PRICE_USD.astroDeep;
+  if (kind === "zodiac") return PRICE_USD.zodiacDeep;
+  if (kind === "almanac") return PRICE_USD.almanacDeep;
+  if (kind === "number") return PRICE_USD.numberDeep;
+  if (kind === "dream") return PRICE_USD.dreamDeep;
+  if (kind === "rune") return PRICE_USD.runeDeep;
+  if (kind === "lenormand") return PRICE_USD.lenormandDeep;
   return null;
 }
 

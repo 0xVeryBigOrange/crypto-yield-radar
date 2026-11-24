@@ -48,8 +48,24 @@ export interface Section {
   text: string;
 }
 
+export type ReadingKind =
+  | "omen"
+  | "wallet"
+  | "tarot"
+  | "ticker"
+  | "compat"
+  | "stick"
+  | "iching"
+  | "astro"
+  | "zodiac"
+  | "almanac"
+  | "number"
+  | "dream"
+  | "rune"
+  | "lenormand";
+
 export interface Reading {
-  kind: "omen" | "wallet" | "tarot" | "ticker" | "compat";
+  kind: ReadingKind;
   edition: string | null;
   day: string;
   title: string;
@@ -57,6 +73,7 @@ export interface Reading {
   mood: Mood;
   moodNote: string;
   cards: CardFace[];
+  basics?: Section[];
   sections: Section[];
   quote: string;
   candles: Candle[];
@@ -95,6 +112,10 @@ export function buildOmen(edition: "sg" | "us", day = edition === "sg" ? sgDay()
   const card = pick(rng, CARDS);
   const vars = { card: card.name, mood };
   const summary = fill(pick(rng, LINES[mood]), vars);
+  const basics: Section[] = [
+    { heading: "牌面", text: `${card.name}。${card.epithet}。${summary}` },
+    { heading: "今天够用", text: `${MOOD_BLURBS[mood]}${fill(pick(rng, PRESENT[mood]), vars)}` },
+  ];
   const sections: Section[] = [
     { heading: "盘前的影子", text: paragraph(rng, PAST[mood], vars) },
     { heading: "此刻的呼吸", text: paragraph(rng, PRESENT[mood], vars) },
@@ -109,6 +130,7 @@ export function buildOmen(edition: "sg" | "us", day = edition === "sg" ? sgDay()
     summary,
     mood,
     cards: [card],
+    basics,
     sections,
     quote: pick(rng, QUOTES),
     candleSeed: `omen|${edition}|${day}`,
@@ -267,6 +289,7 @@ export function readingText(reading: Reading): string {
     reading.quote,
     reading.moodNote,
     ...reading.cards.flatMap((card) => [card.name, card.epithet]),
+    ...(reading.basics ?? []).flatMap((section) => [section.heading, section.text]),
     ...reading.sections.flatMap((section) => [section.heading, section.text]),
     ...Object.values(reading.extras).map((value) => (value == null ? "" : String(value))),
   ].join("\n");
@@ -288,6 +311,7 @@ function finish(input: {
   summary: string;
   mood: Mood;
   cards: CardFace[];
+  basics?: Section[];
   sections: Section[];
   quote: string;
   candleSeed: string;
@@ -307,6 +331,7 @@ function finish(input: {
     mood: input.mood,
     moodNote: MOOD_NOTE,
     cards: input.cards,
+    basics: input.basics,
     sections: input.sections,
     quote: input.quote,
     candles: makeCandles(input.candleSeed, 1),

@@ -1,20 +1,22 @@
 import type { SessionUser } from "./accounts.js";
 import { leaderboard, type BoardRow } from "./board.js";
+import { astroTeasers, buildAlmanac, buildAstro, buildTarotDraw, publicStick, publicTarot, zodiacTeasers } from "./builders.js";
 import { PRICE_USD, PRODUCT, priceAmount, type PriceKey } from "./catalog.js";
+import { SIGNS, yearAnimal } from "./content/astro.js";
 import type { Db } from "./db.js";
 import type { Llm } from "./llm.js";
 import { log } from "./log.js";
-import { formatUsd } from "./money.js";
+import { formatCoins, formatUsd, parseDecimal } from "./money.js";
 import {
   buildCompat,
   buildOmen,
-  buildTarot,
   buildTicker,
   buildWallet,
   questionKey,
   randomSlug,
   type Reading,
 } from "./reading.js";
+import { recordCollection } from "./rewards.js";
 import { formatSpend, spend, type SpendOk } from "./spend.js";
 import { sgDay, usSessionDate } from "./time.js";
 import { DISCLAIMER, NON_REFUNDABLE, asksForTrade, classifySecret, normalizeAddress } from "./text.js";
@@ -52,7 +54,9 @@ export interface ReadingView {
   mood: string;
   moodNote: string;
   cards: Reading["cards"];
+  basics: NonNullable<Reading["basics"]>;
   sections: Reading["sections"];
+  deepPreview: string;
   quote: string;
   candles: Reading["candles"];
   weekCandles: Reading["weekCandles"];
@@ -65,6 +69,7 @@ export interface ReadingView {
   nonRefundable: string;
   locked: boolean;
   priceUsd: string | null;
+  priceCoins: string | null;
   sharePath: string;
   imagePath: string;
   source: "template" | "llm";
@@ -93,11 +98,22 @@ export function assertAck(body: unknown): void {
   }
 }
 
+export function previewDeep(sections: Array<{ text: string }>): string {
+  const text = sections.map((section) => section.text).join("");
+  if (!text) return "";
+  const sentences = text
+    .split(/(?<=[。！？])/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const head = (sentences.slice(0, 2).join("") || text).slice(0, 80);
+  return head.length < text.length ? `${head}…` : head;
+}
+
 export function present(stored: Stored, access: "free" | "full", price: string | null, note?: string): ReadingView {
   const reading = stored.payload;
   const full = access === "full";
   const slug = full ? stored.fullSlug : stored.slug;
-  const cards = full || reading.kind !== "tarot" ? reading.cards : reading.cards.slice(0, 1);
+  const basics = reading.basics?.length ? reading.basics : [{ heading: "免费解读", text: reading.summary }];
   return {
     kind: reading.kind,
     day: reading.day,
@@ -105,9 +121,11 @@ export function present(stored: Stored, access: "free" | "full", price: string |
     summary: reading.summary,
     mood: reading.mood,
     moodNote: reading.moodNote,
-    cards,
-    sections: full ? reading.sections : [],
-    quote: full ? reading.quote : reading.summary,
+    cards: reading.cards ?? [],
+    basics,
+    sections: full ? reading.sections ?? [] : [],
+    deepPreview: full ? "" : previewDeep(reading.sections ?? []),
+    quote: reading.quote,
     candles: reading.candles,
     weekCandles: full || reading.kind === "omen" ? reading.weekCandles : [],
     score: reading.score,
@@ -119,6 +137,7 @@ export function present(stored: Stored, access: "free" | "full", price: string |
     nonRefundable: NON_REFUNDABLE,
     locked: !full,
     priceUsd: full ? null : price,
+    priceCoins: full || !price ? null : formatCoins(parseDecimal(price)),
     sharePath: `/s/${slug}`,
     imagePath: `/s/${slug}.png?layout=${full ? "story" : "card"}`,
     source: stored.source,
@@ -131,7 +150,9 @@ export async function home(pool: Db, llm: Llm | null, user: SessionUser | null) 
   const usSession = usSessionDate();
   const sg = await ensureOmen(pool, llm, "sg", day);
   const us = await ensureOmen(pool, llm, "us", usSession);
-  const unlocked = await unlockedSet(pool, user, [sg.cacheKey, us.cacheKey]);
+  const pack = await warmDaily(pool, llm, day);
+  const keys = [sg.cacheKey, us.cacheKey, pack.stick.cacheKey, pack.tarot.cacheKey, pack.almanac.cacheKey];
+  const unlocked = await unlockedSet(pool, user, keys);
   return {
     day,
     usSession,
@@ -139,24 +160,82 @@ export async function home(pool: Db, llm: Llm | null, user: SessionUser | null) 
     nonRefundable: NON_REFUNDABLE,
     owner: { name: PRODUCT.ownerName, handle: PRODUCT.ownerHandle, url: PRODUCT.ownerUrl },
     prices: PRICE_USD,
-    sg: present(sg, access(user, unlocked, sg.cacheKey), PRICE_USD.omenFull),
-    us: present(us, access(user, unlocked, us.cacheKey), PRICE_USD.omenFull),
+    priceCoins: Object.fromEntries(
+      Object.entries(PRICE_USD).map(([key, value]) => [key, formatCoins(parseDecimal(value))]),
+    ),
+    yearAnimal: yearAnimal(day),
+    sg: present(sg, access(user, unlocked, sg.cacheKey), PRICE_USD.omenDeep),
+    us: present(us, access(user, unlocked, us.cacheKey), PRICE_USD.omenDeep),
+    stick: present(pack.stick, access(user, unlocked, pack.stick.cacheKey), PRICE_USD.stickDeep),
+    tarot: present(pack.tarot, access(user, unlocked, pack.tarot.cacheKey), PRICE_USD.tarotDeep),
+    almanac: present(pack.almanac, access(user, unlocked, pack.almanac.cacheKey), PRICE_USD.almanacDeep),
+    signs: astroTeasers(day),
+    animals: zodiacTeasers(day),
     leaderboard: await leaderboard(pool, day),
     passActive: user?.passActive ?? false,
+    welcomeCredits: 3,
   };
+}
+
+export async function warmDaily(pool: Db, llm: Llm | null, day: string): Promise<{
+  stick: Stored;
+  tarot: Stored;
+  almanac: Stored;
+  horoscopes: number;
+}> {
+  const stick = await ensure(pool, llm, {
+    key: `stick:public:${day}`,
+    kind: "stick",
+    day,
+    slug: `stick-${day}`,
+    skipLlm: true,
+    build: () => publicStick(day),
+  });
+  const tarot = await ensure(pool, llm, {
+    key: `tarot:public:${day}:daily`,
+    kind: "tarot",
+    day,
+    slug: `tarot-${day}`,
+    skipLlm: true,
+    build: () => publicTarot(day),
+  });
+  const almanac = await ensure(pool, llm, {
+    key: `almanac:${day}`,
+    kind: "almanac",
+    day,
+    slug: `almanac-${day}`,
+    skipLlm: true,
+    build: () => buildAlmanac(day),
+  });
+  let horoscopes = 0;
+  for (const sign of SIGNS) {
+    await ensure(pool, llm, {
+      key: `astro:${sign.name}:${day}`,
+      kind: "astro",
+      day,
+      skipLlm: true,
+      build: () => {
+        const reading = buildAstro(sign.name, day);
+        if (!reading) throw new Error("missing sign");
+        return reading;
+      },
+    });
+    horoscopes += 1;
+  }
+  return { stick, tarot, almanac, horoscopes };
 }
 
 export async function openOmen(pool: Db, llm: Llm | null, user: SessionUser | null, edition: "sg" | "us") {
   const day = edition === "sg" ? sgDay() : usSessionDate();
   const stored = await ensureOmen(pool, llm, edition, day);
   const unlocked = await unlockedSet(pool, user, [stored.cacheKey]);
-  return present(stored, access(user, unlocked, stored.cacheKey), PRICE_USD.omenFull);
+  return present(stored, access(user, unlocked, stored.cacheKey), PRICE_USD.omenDeep);
 }
 
 export async function unlockOmen(pool: Db, llm: Llm | null, user: SessionUser, edition: "sg" | "us"): Promise<UnlockBody> {
   const day = edition === "sg" ? sgDay() : usSessionDate();
   const key = omenKey(edition, day);
-  const paid = await charge(pool, user, key, "omen", "omenFull");
+  const paid = await charge(pool, user, key, "omen", "omenDeep");
   const stored = await ensureOmen(pool, llm, edition, day);
   await touch(pool, user.id, stored.cacheKey);
   return { reading: present(stored, "full", null), ...formatSpend(paid) };
@@ -183,10 +262,11 @@ export async function openWallet(
       build: () => buildWallet(address, day, birth.firstSeen, birth.chain),
     });
     if (user) await touch(pool, user.id, stored.cacheKey);
-    return present(stored, "free", PRICE_USD.walletFull);
+    if (user?.passActive) return present(stored, "full", null);
+    return present(stored, "free", PRICE_USD.walletDeep);
   }
   if (!user) throw new ProductError(401, "unauthorized", "登录后才能打开完整命盘。");
-  const paid = await charge(pool, user, key, "wallet", "walletFull");
+  const paid = await charge(pool, user, key, "wallet", "walletDeep");
   const stored = await ensure(pool, llm, {
     key,
     kind: "wallet",
@@ -200,44 +280,34 @@ export async function openWallet(
 export async function openTarot(
   pool: Db,
   llm: Llm | null,
-  user: SessionUser,
+  user: SessionUser | null,
   question: string,
   tier: "free" | "full",
+  seed: string,
 ): Promise<ReadingView | UnlockBody> {
   const day = sgDay();
   const normalized = normalizeQuestion(question);
   if (!normalized) throw new ProductError(400, "bad_question", "问题请写 2 到 200 个字。");
-  if (tier === "free") {
-    const key = `tarot:${user.id}:${day}:free`;
-    const existing = await readKey(pool, key);
-    if (existing) {
-      return present(existing, "free", PRICE_USD.tarotFull, "今天的免费一抽已经用过了。换问题请看完整的三张牌。");
-    }
-    const stored = await ensure(pool, llm, {
-      key,
-      kind: "tarot",
-      day,
-      build: () => buildTarot(user.id, day, normalized, asksForTrade(normalized)),
-    });
-    await touch(pool, user.id, stored.cacheKey);
-    return present(stored, "free", PRICE_USD.tarotFull);
-  }
-  const key = `tarot:${user.id}:${day}:${questionKey(normalized)}`;
-  const paid = await charge(pool, user, key, "tarot", "tarotFull");
-  const free = await readKey(pool, `tarot:${user.id}:${day}:free`);
-  const sameQuestion = free?.payload.extras.question === clipQuestion(normalized);
-  const stored = await ensure(pool, llm, {
-    key,
+  const trade = asksForTrade(normalized);
+  return openPlay(pool, llm, user, {
+    key: `ask:${seed}:${day}:${questionKey(normalized)}`,
     kind: "tarot",
     day,
-    skipLlm: sameQuestion,
-    build: () =>
-      sameQuestion && free
-        ? { ...free.payload, extras: { ...free.payload.extras } }
-        : buildTarot(user.id, day, normalized, asksForTrade(normalized)),
+    price: "tarotDeep",
+    tier,
+    build: () => {
+      const reading = buildTarotDraw({
+        day,
+        spread: "three",
+        question: normalized,
+        nonce: `ask:${seed}`,
+        cut: 0,
+        picks: null,
+      });
+      if (!trade) return reading;
+      return { ...reading, summary: `牌不回答买卖，只把话扭回心情。${reading.summary}` };
+    },
   });
-  await touch(pool, user.id, stored.cacheKey);
-  return { reading: present(stored, "full", null), ...formatSpend(paid) };
 }
 
 export async function openTicker(
@@ -259,15 +329,16 @@ export async function openTicker(
       build: () => buildTicker(seedId, day, masked),
     });
     if (user) await touch(pool, user.id, stored.cacheKey);
+    if (user?.passActive) return present(stored, "full", null);
     return present(
       stored,
       "free",
-      PRICE_USD.tickerFull,
-      user ? undefined : "登录后可以看你自己的缘分，并打开完整牌面。",
+      PRICE_USD.tickerDeep,
+      user ? undefined : "登录后可以看你自己的缘分，并打开深度解读。",
     );
   }
   if (!user) throw new ProductError(401, "unauthorized", "登录后才能打开完整币缘。");
-  const paid = await charge(pool, user, key, "ticker", "tickerFull");
+  const paid = await charge(pool, user, key, "ticker", "tickerDeep");
   const stored = await ensure(pool, llm, {
     key,
     kind: "ticker",
@@ -300,7 +371,7 @@ export async function openCompat(
         day,
         build: () => buildCompat("guest", day, "路人", PRODUCT.ownerName, true),
       });
-      return present(stored, "free", PRICE_USD.compatFull, "这是今天路人与大橙子的公开玩笑分。登录后看你自己的。");
+      return present(stored, "free", PRICE_USD.compatDeep, "这是今天路人与大橙子的公开玩笑分。登录后看你自己的。");
     }
     return pairReading(pool, llm, user, input.tier, {
       key: `compat:orange:${user.id}:${day}`,
@@ -322,7 +393,7 @@ export async function openCompat(
         day,
         build: () => buildCompat(`invite:${code}`, day, "你", other.nickname, false),
       });
-      return present(stored, "free", PRICE_USD.compatFull, `登录后跟 ${other.nickname} 看你们俩的合盘。这是邀请，不是返佣。`);
+      return present(stored, "free", PRICE_USD.compatDeep, `登录后跟 ${other.nickname} 看你们俩的合盘。这是邀请，不是返佣。`);
     }
     if (other.id === user.id) throw new ProductError(400, "self", "这是你自己的链接。发给朋友，合盘才成立。");
     const [lo, hi] = [user.id, other.id].sort();
@@ -355,20 +426,24 @@ export async function history(pool: Db, userId: string) {
     cache_key: string;
     kind: string;
     title: string;
+    summary: string;
     slug: string;
+    day: string;
     created_at: Date;
   }>(
-    `SELECT c.cache_key, c.kind, c.title, c.slug, ur.created_at
+    `SELECT c.cache_key, c.kind, c.title, c.summary, c.slug, c.day::text AS day, ur.created_at
      FROM user_readings ur
      JOIN reading_cache c ON c.cache_key = ur.cache_key
      WHERE ur.user_id = $1
      ORDER BY ur.created_at DESC
-     LIMIT 30`,
+     LIMIT 60`,
     [userId],
   );
   return rows.rows.map((row) => ({
     kind: row.kind,
     title: row.title,
+    summary: row.summary,
+    day: row.day,
     sharePath: `/s/${row.slug}`,
     createdAt: row.created_at.toISOString(),
   }));
@@ -435,13 +510,79 @@ async function pairReading(
   if (tier === "free") {
     const stored = await ensure(pool, llm, { key: spec.key, kind: "compat", day, build });
     if (user) await touch(pool, user.id, stored.cacheKey);
-    return present(stored, "free", PRICE_USD.compatFull);
+    if (user?.passActive) return present(stored, "full", null);
+    return present(stored, "free", PRICE_USD.compatDeep);
   }
   if (!user) throw new ProductError(401, "unauthorized", "登录后才能打开完整合盘。");
-  const paid = await charge(pool, user, spec.key, "compat", "compatFull");
+  const paid = await charge(pool, user, spec.key, "compat", "compatDeep");
   const stored = await ensure(pool, llm, { key: spec.key, kind: "compat", day, build });
   await touch(pool, user.id, stored.cacheKey);
   return { reading: present(stored, "full", null), ...formatSpend(paid) };
+}
+
+export async function openPlay(
+  pool: Db,
+  llm: Llm | null,
+  user: SessionUser | null,
+  spec: {
+    key: string;
+    kind: string;
+    day: string;
+    build: () => Reading;
+    price: PriceKey;
+    tier: "free" | "full";
+  },
+): Promise<ReadingView | UnlockBody> {
+  let stored = await ensure(pool, llm, {
+    key: spec.key,
+    kind: spec.kind,
+    day: spec.day,
+    build: spec.build,
+    skipLlm: true,
+  });
+  const pass = Boolean(user?.passActive);
+  if (spec.tier === "free" && !pass) {
+    if (user) {
+      await touch(pool, user.id, stored.cacheKey);
+      await recordCollection(pool, user.id, stored.payload.extras.collect);
+    }
+    return present(stored, "free", PRICE_USD[spec.price]);
+  }
+  if (!user) throw new ProductError(401, "unauthorized", "登录后才能解锁深度解读。新用户送 3 次，不必先充值。");
+  const paid = spec.tier === "full" ? await charge(pool, user, spec.key, spec.kind, spec.price) : null;
+  stored = await deepen(pool, llm, stored);
+  await touch(pool, user.id, stored.cacheKey);
+  await recordCollection(pool, user.id, stored.payload.extras.collect);
+  const view = present(stored, "full", null);
+  if (!paid) return view;
+  return { reading: view, ...formatSpend(paid) };
+}
+
+async function deepen(pool: Db, llm: Llm | null, stored: Stored): Promise<Stored> {
+  if (!llm || stored.source === "llm") return stored;
+  try {
+    const polished = await llm.polish(stored.payload);
+    if (!polished) return stored;
+    const next: Reading = {
+      ...polished,
+      summary: stored.payload.summary,
+      basics: stored.payload.basics,
+      quote: stored.payload.quote,
+      cards: stored.payload.cards,
+      mood: stored.payload.mood,
+      score: stored.payload.score,
+      scoreLabel: stored.payload.scoreLabel,
+      extras: stored.payload.extras,
+    };
+    await pool.query(
+      `UPDATE reading_cache SET payload = $2::jsonb, source = 'llm' WHERE cache_key = $1 AND source = 'template'`,
+      [stored.cacheKey, JSON.stringify(next)],
+    );
+    return { ...stored, payload: next, source: "llm" };
+  } catch (err) {
+    log("warn", "deep polish failed", { name: err instanceof Error ? err.name : "error" });
+    return stored;
+  }
 }
 
 async function charge(pool: Db, user: SessionUser, ref: string, kind: string, price: PriceKey): Promise<SpendOk> {
@@ -574,10 +715,6 @@ function normalizeQuestion(input: string): string | null {
   const text = input.trim().replace(/\s+/g, " ");
   if (text.length < 2 || text.length > 200) return null;
   return text;
-}
-
-function clipQuestion(question: string): string {
-  return question.length > 42 ? `${question.slice(0, 41)}…` : question;
 }
 
 function secretOrInvalid(...inputs: string[]): ProductError {

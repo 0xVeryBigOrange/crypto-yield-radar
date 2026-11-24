@@ -1,5 +1,7 @@
+import { checkinBonusUsd } from "./catalog.js";
 import type { Db } from "./db.js";
 import { withTx } from "./db.js";
+import { formatCoins, formatFull, parseDecimal } from "./money.js";
 import { rngFrom } from "./rng.js";
 import { previousDay, sgDay } from "./time.js";
 import { CHECKIN_LINES } from "./copy.js";
@@ -15,36 +17,55 @@ export async function checkIn(pool: Db, userId: string, now = new Date()): Promi
   streak: number;
   already: boolean;
   line: string;
+  coinsAwarded: string;
+  orangeCoins: string;
 }> {
   const day = sgDay(now);
   return withTx(pool, async (client) => {
-    const user = await client.query<{ checkin_streak: number; last_checkin: string | null }>(
-      `SELECT checkin_streak, last_checkin::text FROM users WHERE id = $1 FOR UPDATE`,
+    const user = await client.query<{ checkin_streak: number; last_checkin: string | null; balance_usd: string }>(
+      `SELECT checkin_streak, last_checkin::text, balance_usd::text FROM users WHERE id = $1 FOR UPDATE`,
       [userId],
     );
     const row = user.rows[0];
     if (!row) throw new Error("user not found");
+    const balance = parseDecimal(row.balance_usd);
     if (row.last_checkin === day) {
       const existing = await client.query<{ score: number; streak: number }>(
         `SELECT score, streak FROM checkins WHERE user_id = $1 AND day = $2::date`,
         [userId, day],
       );
       const score = existing.rows[0]?.score ?? checkinScore(userId, day, row.checkin_streak);
-      return { score, streak: row.checkin_streak, already: true, line: "今天已经打过卡了。欧气不会因为多点一次就变多。" };
+      return {
+        score,
+        streak: row.checkin_streak,
+        already: true,
+        line: "今天已经打过卡了。欧气不会因为多点一次就变多。",
+        coinsAwarded: "0",
+        orangeCoins: formatCoins(balance),
+      };
     }
     const streak = row.last_checkin === previousDay(day) ? row.checkin_streak + 1 : 1;
     const score = checkinScore(userId, day, streak);
+    const bonus = parseDecimal(checkinBonusUsd(streak));
     await client.query(
       `INSERT INTO checkins (user_id, day, score, streak) VALUES ($1, $2::date, $3, $4)
        ON CONFLICT (user_id, day) DO NOTHING`,
       [userId, day, score, streak],
     );
-    await client.query(`UPDATE users SET checkin_streak = $2, last_checkin = $3::date WHERE id = $1`, [
-      userId,
+    await client.query(
+      `UPDATE users
+       SET checkin_streak = $2, last_checkin = $3::date, balance_usd = balance_usd + $4::numeric
+       WHERE id = $1`,
+      [userId, streak, day, formatFull(bonus)],
+    );
+    return {
+      score,
       streak,
-      day,
-    ]);
-    return { score, streak, already: false, line: pick(rngFrom(`checkin-line|${userId}|${day}`), CHECKIN_LINES) };
+      already: false,
+      line: pick(rngFrom(`checkin-line|${userId}|${day}`), CHECKIN_LINES),
+      coinsAwarded: formatCoins(bonus),
+      orangeCoins: formatCoins(balance + bonus),
+    };
   });
 }
 

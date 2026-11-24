@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>塔罗 — 橙签</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="tarot">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="seal" aria-hidden="true"></span><span>橙签</span></a>
+    <a class="balance-chip" href="/account" data-balance>登录</a>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">78 张 · 正逆位</p>
+    <h1>自己洗，自己点</h1>
+    <p class="lede">牌面和每张的短解免费。深度解读大多数 20 橙币，凯尔特十字 50。不必登录就能抽。</p>
+    <form id="tarot-form" class="stack">
+      <label><span>牌阵</span>
+        <select name="spread">
+          <option value="daily">每日一张</option>
+          <option value="yesno">是 / 否</option>
+          <option value="three" selected>过去现在未来</option>
+          <option value="love">爱情</option>
+          <option value="career">事业</option>
+          <option value="choice">二选一</option>
+          <option value="celtic">凯尔特十字</option>
+        </select>
+      </label>
+      <label><span>想问的话，可留空</span><input name="question" maxlength="80" placeholder="不写买卖"></label>
+      <div class="btn-row">
+        <button class="btn" type="button" id="shuffle">洗牌</button>
+        <button class="btn-ghost" type="button" id="cut">切牌</button>
+        <button class="btn-ghost" type="button" id="auto">直接翻</button>
+      </div>
+    </form>
+    <p class="fine" id="pick-hint"></p>
+    <div id="result"></div>
+    <div class="deck" id="deck"></div>
+    <footer class="site-footer"><p>仅供娱乐，不构成投资、法律、医疗或心理建议。</p></footer>
+  </main>
+  <nav class="tabbar" aria-label="牌桌">
+    <a href="/">今日</a>
+    <a href="/play" aria-current="page">玩法</a>
+    <a href="/collection">图鉴</a>
+    <a href="/account">我的</a>
+  </nav>
+  <script src="/ui.js"></script>
+  <script src="/plays.js"></script>
+</body>
+</html>
