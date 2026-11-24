@@ -290,7 +290,29 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line
 
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto; }
-  .tube.shaking, .coin.spin, .back.flip { animation: none; }
+  .tube.shaking, .coin.spin, .back.flip, .pulse { animation: none; }
+}
+
+.pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  margin: 4px 0 8px;
+  color: var(--gold);
+}
+.pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--orange);
+  box-shadow: 0 0 0 0 rgba(255, 122, 26, 0.55);
+  animation: pulse 1.2s ease-out infinite;
+  flex: none;
+}
+@keyframes pulse {
+  70% { box-shadow: 0 0 0 10px rgba(255, 122, 26, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 122, 26, 0); }
 }
 
 .today-grid, .chip-row { display: grid; gap: 10px; }

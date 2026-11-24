@@ -27,7 +27,7 @@ async function draw(path, body) {
       showReading(paid, null);
     });
   } catch (error) {
-    node.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+    node.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
   }
   node.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -154,7 +154,7 @@ function bootAstro() {
         });
       })
       .catch((error) => {
-        node.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+        node.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
       });
   };
   document.getElementById("sign")?.addEventListener("change", load);
@@ -182,7 +182,7 @@ function bootZodiac() {
         });
       })
       .catch((error) => {
-        node.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+        node.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
       });
   };
   document.getElementById("animal")?.addEventListener("change", load);
@@ -201,7 +201,7 @@ function bootAlmanac() {
       });
     })
     .catch((error) => {
-      node.innerHTML = `<p class="msg bad">${esc(error.message)}</p>`;
+      node.innerHTML = `<p class="msg bad">${esc(friendlyError(error))}</p>`;
     });
 }
 
